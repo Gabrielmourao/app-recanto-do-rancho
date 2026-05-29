@@ -31,8 +31,9 @@ def buscar_dados(query, parametros=()):
     conn.close()
     return resultado
 
-# Inicia a tabela de usuários e cria a conta do Síndico se não existir
+# Inicia TODAS as tabelas do banco de dados e cria a conta do Síndico se não existir
 def inicializar_banco():
+    # 1. Tabela de Usuários
     executar_sql('''
     CREATE TABLE IF NOT EXISTS usuarios (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,6 +45,60 @@ def inicializar_banco():
     )
     ''')
     
+    # 2. Tabela de Comunicados
+    executar_sql('''
+    CREATE TABLE IF NOT EXISTS comunicados (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        titulo TEXT NOT NULL,
+        mensagem TEXT NOT NULL,
+        data_publicacao TEXT NOT NULL
+    )
+    ''')
+
+    # 3. Tabela de Assembleias
+    executar_sql('''
+    CREATE TABLE IF NOT EXISTS assembleias (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        data_completa TEXT NOT NULL,
+        mes_ano TEXT NOT NULL,
+        local TEXT NOT NULL,
+        pauta TEXT NOT NULL,
+        status TEXT DEFAULT 'Agendada'
+    )
+    ''')
+
+    # 4. Tabela de Atas
+    executar_sql('''
+    CREATE TABLE IF NOT EXISTS atas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mes_ano TEXT NOT NULL,
+        data_completa TEXT NOT NULL,
+        pauta TEXT NOT NULL,
+        nome_arquivo TEXT NOT NULL
+    )
+    ''')
+
+    # 5. Tabela de Reservas
+    executar_sql('''
+    CREATE TABLE IF NOT EXISTS reservas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome TEXT NOT NULL,
+        casa TEXT NOT NULL,
+        data_reserva TEXT NOT NULL,
+        status TEXT NOT NULL
+    )
+    ''')
+
+    # 6. Tabela de Balancetes
+    executar_sql('''
+    CREATE TABLE IF NOT EXISTS balancetes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        titulo TEXT NOT NULL,
+        nome_arquivo TEXT NOT NULL
+    )
+    ''')
+    
+    # Cria conta do Síndico se não existir
     sindico_existe = buscar_dados("SELECT * FROM usuarios WHERE perfil='Síndico'")
     if not sindico_existe:
         executar_sql("INSERT INTO usuarios (nome, email, casa, senha, perfil) VALUES (?, ?, ?, ?, ?)",
@@ -77,7 +132,7 @@ if st.session_state['usuario_logado'] is None:
         if st.button("Entrar", key="btn_login"):
             usuario = buscar_dados("SELECT * FROM usuarios WHERE email=? AND senha=?", (email_login, senha_login))
             if usuario:
-                st.session_state['usuario_logado'] = usuario[0] # Guarda todos os dados da pessoa na memória
+                st.session_state['usuario_logado'] = usuario[0] 
                 st.rerun()
             else:
                 st.error("E-mail ou senha incorretos.")
@@ -106,7 +161,7 @@ if st.session_state['usuario_logado'] is None:
 # 3. O APLICATIVO (Área Logada)
 # ==========================================
 else:
-    user = st.session_state['usuario_logado'] # Atalho para saber quem está navegando
+    user = st.session_state['usuario_logado'] 
     
     st.sidebar.success(f"👤 Olá, **{user['nome']}**\n\n🏠 Casa: {user['casa']}")
     if st.sidebar.button("Sair (Logout)"):
@@ -226,7 +281,6 @@ else:
                 st.info("✅ Data disponível! Clique abaixo para confirmar.")
                 
                 if st.button("Confirmar Solicitação de Reserva"):
-                    # Agora o sistema puxa o nome e casa direto do perfil logado, sem precisar digitar
                     executar_sql("INSERT INTO reservas (nome, casa, data_reserva, status) VALUES (?, ?, ?, ?)", 
                                  (user['nome'], user['casa'], data_str, "Aguardando Aprovação"))
                     st.success("Solicitação enviada!")
