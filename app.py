@@ -3,7 +3,7 @@ import sqlite3
 import datetime
 import os
 
-# Configuração da página - Agora a aba lateral inicia recolhida por padrão!
+# Configuração da página - Inicia com a aba lateral fechada
 st.set_page_config(page_title="Recanto do Rancho", layout="wide", initial_sidebar_state="collapsed")
 
 # ==========================================
@@ -38,8 +38,6 @@ def inicializar_banco():
     executar_sql('''CREATE TABLE IF NOT EXISTS atas (id INTEGER PRIMARY KEY AUTOINCREMENT, mes_ano TEXT NOT NULL, data_completa TEXT NOT NULL, pauta TEXT NOT NULL, nome_arquivo TEXT NOT NULL)''')
     executar_sql('''CREATE TABLE IF NOT EXISTS reservas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, casa TEXT NOT NULL, data_reserva TEXT NOT NULL, status TEXT NOT NULL)''')
     executar_sql('''CREATE TABLE IF NOT EXISTS balancetes (id INTEGER PRIMARY KEY AUTOINCREMENT, titulo TEXT NOT NULL, nome_arquivo TEXT NOT NULL)''')
-    
-    # NOVAS TABELAS: Multas e Mensagens
     executar_sql('''CREATE TABLE IF NOT EXISTS multas (id INTEGER PRIMARY KEY AUTOINCREMENT, casa TEXT NOT NULL, motivo TEXT NOT NULL, data_aplicacao TEXT NOT NULL, nome_arquivo TEXT NOT NULL)''')
     executar_sql('''CREATE TABLE IF NOT EXISTS mensagens (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, casa TEXT NOT NULL, assunto TEXT NOT NULL, texto TEXT NOT NULL, data_envio TEXT NOT NULL)''')
     
@@ -56,7 +54,6 @@ MESES_PT = {
     9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
 }
 
-# Controle de navegação inteligente
 if 'pagina_atual' not in st.session_state:
     st.session_state['pagina_atual'] = "Página Inicial"
 
@@ -64,7 +61,7 @@ def navegar_para(pagina):
     st.session_state['pagina_atual'] = pagina
 
 # ==========================================
-# 2. SISTEMA DE LOGIN REAL
+# 2. SISTEMA DE LOGIN
 # ==========================================
 if 'usuario_logado' not in st.session_state:
     st.session_state['usuario_logado'] = None
@@ -117,93 +114,108 @@ if st.session_state['usuario_logado'] is None:
                 st.warning("Por favor, preencha todos os campos.")
 
 # ==========================================
-# 3. O APLICATIVO (Área Logada)
+# 3. O APLICATIVO LOGADO
 # ==========================================
 else:
     user = st.session_state['usuario_logado'] 
-    primeiro_nome = user['nome'].split()[0] 
     
-    # Opções do menu baseadas no perfil
+    # Extrai o primeiro e segundo nome para criar a bolinha com as iniciais
+    partes_nome = user['nome'].split()
+    iniciais = "".join([n[0] for n in partes_nome[:2]]).upper()
+    primeiro_nome = partes_nome[0].upper()
+    
     if user['perfil'] == "Síndico":
         opcoes_menu = ["Página Inicial", "Comunicados", "Reservas", "Assembleias", "Prestação de Contas", "Moradores", "Multas", "Mensagens"]
     else:
         opcoes_menu = ["Página Inicial", "Comunicados", "Reservas", "Assembleias", "Prestação de Contas", "Falar com o Síndico", "Minhas Multas"]
 
-    st.sidebar.success(f"👤 Olá, **{primeiro_nome}**\n\n🏠 Casa: {user['casa']}")
+    # --- DESIGN DA SIDEBAR INSPIRADO NA IMAGEM 1 ---
+    st.sidebar.markdown(f"""
+    <div style="text-align: center; padding: 10px 0;">
+        <div style="background-color: #0b5394; color: white; border-radius: 50%; width: 60px; height: 60px; line-height: 60px; font-size: 22px; font-weight: bold; margin: 0 auto;">
+            {iniciais}
+        </div>
+        <h4 style="margin: 10px 0 0 0; color: #333;">{user['nome'].upper()}</h4>
+        <p style="margin: 0; color: gray; font-size: 14px;">Casa: {user['casa']} • Perfil: {user['perfil']}</p>
+    </div>
+    """, unsafe_allow_html=True)
+    st.sidebar.divider()
     
-    # Menu Lateral sincronizado com a navegação
-    menu = st.sidebar.radio("Navegação Lateral:", opcoes_menu, index=opcoes_menu.index(st.session_state['pagina_atual']))
+    menu = st.sidebar.radio("Navegação:", opcoes_menu, index=opcoes_menu.index(st.session_state['pagina_atual']), label_visibility="collapsed")
     
     if menu != st.session_state['pagina_atual']:
         st.session_state['pagina_atual'] = menu
         st.rerun()
         
     st.sidebar.divider()
-    if st.sidebar.button("Sair (Logout)"):
+    if st.sidebar.button("Sair (Logout)", use_container_width=True):
         st.session_state['usuario_logado'] = None
         st.rerun()
 
     pagina = st.session_state['pagina_atual']
 
-    # --- PÁGINA INICIAL ---
+    # --- PÁGINA INICIAL INSPIRADA NA IMAGEM 2 ---
     if pagina == "Página Inicial":
-        st.title(f"🏢 Olá, {primeiro_nome}! Bem-vindo(a).")
-        st.write("Acesse rapidamente os serviços do condomínio:")
+        st.markdown(f"<h3 style='text-align: center; color: gray; font-weight: normal; margin-bottom: 0;'>Bem-vindo, {primeiro_nome}</h3>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center; margin-top: 0;'>Recanto do Rancho</h1>", unsafe_allow_html=True)
+        st.write("")
         
-        # ÍCONES DE NAVEGAÇÃO NA TELA INICIAL
-        col1, col2, col3, col4 = st.columns(4)
-        if col1.button("📢 Comunicados", use_container_width=True): navegar_para("Comunicados"); st.rerun()
-        if col2.button("📅 Reservas", use_container_width=True): navegar_para("Reservas"); st.rerun()
-        if col3.button("🤝 Assembleias", use_container_width=True): navegar_para("Assembleias"); st.rerun()
-        if col4.button("📊 Contas", use_container_width=True): navegar_para("Prestação de Contas"); st.rerun()
+        # Grid de botões simulando cards
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("📢\nComunicados", use_container_width=True): navegar_para("Comunicados"); st.rerun()
+            if st.button("📊\nContas", use_container_width=True): navegar_para("Prestação de Contas"); st.rerun()
+            if user['perfil'] == "Síndico":
+                if st.button("📥\nMensagens", use_container_width=True): navegar_para("Mensagens"); st.rerun()
+
+        with col2:
+            if st.button("📅\nReservas", use_container_width=True): navegar_para("Reservas"); st.rerun()
+            if st.button("🤝\nAssembleias", use_container_width=True): navegar_para("Assembleias"); st.rerun()
+            if user['perfil'] == "Síndico":
+                if st.button("👥\nMoradores", use_container_width=True): navegar_para("Moradores"); st.rerun()
+
+        with col3:
+            if user['perfil'] == "Síndico":
+                if st.button("🛑\nMultas", use_container_width=True): navegar_para("Multas"); st.rerun()
+            else:
+                if st.button("💬\nFalar c/ Síndico", use_container_width=True): navegar_para("Falar com o Síndico"); st.rerun()
+                if st.button("🛑\nMinhas Multas", use_container_width=True): navegar_para("Minhas Multas"); st.rerun()
 
         st.divider()
-        st.subheader("📢 Últimos Avisos e Eventos")
         
-        # Junta Avisos e Assembleias na página inicial
+        # Resumo de Avisos na tela inicial
         ultimos_avisos = buscar_dados("SELECT * FROM comunicados ORDER BY id DESC LIMIT 3")
         assembleias_agendadas = buscar_dados("SELECT * FROM assembleias WHERE status='Agendada' ORDER BY id DESC LIMIT 2")
         
-        if not ultimos_avisos and not assembleias_agendadas:
-            st.info("Nenhuma novidade no momento.")
-        
-        for ass in assembleias_agendadas:
-            st.warning(f"🚨 **CONVOCAÇÃO DE ASSEMBLEIA** - {ass['data_completa']}\n\n**Local:** {ass['local']} | **Pauta:** {ass['pauta']}")
-            
-        for aviso in ultimos_avisos:
-            st.markdown(f"**📌 {aviso['titulo']}** *(Publicado em: {aviso['data_publicacao']})*")
-            st.write(aviso['mensagem'])
-            st.divider()
+        if assembleias_agendadas or ultimos_avisos:
+            st.subheader("📌 Destaques")
+            for ass in assembleias_agendadas:
+                st.warning(f"🚨 **ASSEMBLEIA:** {ass['data_completa']} | Local: {ass['local']}")
+            for aviso in ultimos_avisos:
+                st.info(f"**{aviso['titulo']}** ({aviso['data_publicacao']})\n\n{aviso['mensagem']}")
 
     # --- COMUNICADOS ---
     elif pagina == "Comunicados":
         st.title("📢 Mural de Comunicados")
-        
         if user['perfil'] == "Síndico":
             with st.expander("➕ Publicar Novo Comunicado"):
                 with st.form("form_aviso", clear_on_submit=True):
                     tit_aviso = st.text_input("Título do Comunicado")
                     msg_aviso = st.text_area("Assunto / Mensagem")
-                    submit_aviso = st.form_submit_button("Publicar no Mural")
-                    
-                    if submit_aviso:
+                    if st.form_submit_button("Publicar no Mural"):
                         if tit_aviso and msg_aviso:
                             data_hoje = datetime.datetime.now().strftime("%d/%m/%Y")
-                            executar_sql("INSERT INTO comunicados (titulo, mensagem, data_publicacao) VALUES (?, ?, ?)", 
-                                         (tit_aviso, msg_aviso, data_hoje))
-                            st.success("Comunicado publicado!")
+                            executar_sql("INSERT INTO comunicados (titulo, mensagem, data_publicacao) VALUES (?, ?, ?)", (tit_aviso, msg_aviso, data_hoje))
+                            st.success("Publicado!")
                             st.rerun()
-                        else:
-                            st.warning("Preencha título e mensagem.")
             st.divider()
 
-        assembleias_agendadas = buscar_dados("SELECT * FROM assembleias WHERE status='Agendada'")
-        for ass in assembleias_agendadas:
-            st.warning(f"🚨 **CONVOCAÇÃO DE ASSEMBLEIA** - {ass['data_completa']}\n\n**Local:** {ass['local']} | **Pauta:** {ass['pauta']}")
+        for ass in buscar_dados("SELECT * FROM assembleias WHERE status='Agendada'"):
+            st.warning(f"🚨 **CONVOCAÇÃO:** {ass['data_completa']}\n\n**Local:** {ass['local']} | **Pauta:** {ass['pauta']}")
 
         avisos = buscar_dados("SELECT * FROM comunicados ORDER BY id DESC")
-        if not avisos:
-            st.write("Nenhum comunicado no mural.")
+        if not avisos: st.write("Nenhum comunicado.")
         for aviso in avisos:
             st.markdown(f"### 📌 {aviso['titulo']}")
             st.caption(f"Publicado em: {aviso['data_publicacao']}")
@@ -218,36 +230,27 @@ else:
         if user['perfil'] == "Síndico":
             st.subheader("Painel de Solicitações")
             pendentes = [r for r in reservas_gerais if r['status'] == "Aguardando Aprovação"]
-            if not pendentes:
-                st.write("Nenhuma solicitação aguardando análise.")
+            if not pendentes: st.write("Nenhuma solicitação pendente.")
             for r in pendentes:
                 with st.expander(f"Solicitação: {r['data_reserva']} - {r['nome']} (Casa {r['casa']})", expanded=True):
                     col1, col2 = st.columns(2)
                     if col1.button("✅ Aprovar", key=f"apr_{r['id']}"):
-                        executar_sql("UPDATE reservas SET status='Aprovada' WHERE id=?", (r['id'],))
-                        st.rerun()
+                        executar_sql("UPDATE reservas SET status='Aprovada' WHERE id=?", (r['id'],)); st.rerun()
                     if col2.button("❌ Reprovar", key=f"rep_{r['id']}"):
-                        executar_sql("UPDATE reservas SET status='Reprovada' WHERE id=?", (r['id'],))
-                        st.rerun()
+                        executar_sql("UPDATE reservas SET status='Reprovada' WHERE id=?", (r['id'],)); st.rerun()
             st.divider()
-            
-            st.subheader("Histórico de Reservas")
+            st.subheader("Histórico")
             for r in reservas_gerais:
                 st.write(f"**{r['data_reserva']}** | {r['nome']} (Casa {r['casa']}) | Status: {r['status']}")
 
         else: # Morador
             st.subheader("Minhas Solicitações")
             minhas_reservas = buscar_dados("SELECT * FROM reservas WHERE casa=? ORDER BY id DESC", (user['casa'],))
-            
-            if not minhas_reservas:
-                st.write("Você não tem solicitações.")
+            if not minhas_reservas: st.write("Você não tem solicitações.")
             for r in minhas_reservas:
-                if r['status'] == "Aprovada":
-                    st.success(f"📅 {r['data_reserva']} | APROVADA - Boa festa!")
-                elif r['status'] == "Reprovada":
-                    st.error(f"📅 {r['data_reserva']} | REPROVADA - Fale com o síndico.")
-                else:
-                    st.warning(f"📅 {r['data_reserva']} | AGUARDANDO APROVAÇÃO")
+                if r['status'] == "Aprovada": st.success(f"📅 {r['data_reserva']} | APROVADA")
+                elif r['status'] == "Reprovada": st.error(f"📅 {r['data_reserva']} | REPROVADA")
+                else: st.warning(f"📅 {r['data_reserva']} | AGUARDANDO APROVAÇÃO")
             
             st.divider()
             st.subheader("Nova Solicitação")
@@ -261,17 +264,13 @@ else:
                         status_data = r['status']
                         break 
                 
-                if status_data == "Aprovada":
-                    st.error("⚠️ Já existe uma reserva confirmada para este dia.")
-                elif status_data == "Aguardando Aprovação":
-                    st.warning("⏳ Esta data já possui uma solicitação aguardando aprovação.")
+                if status_data == "Aprovada": st.error("⚠️ Data já reservada.")
+                elif status_data == "Aguardando Aprovação": st.warning("⏳ Data em análise.")
                 else:
                     st.info("✅ Data disponível!")
                     if st.button("Confirmar Reserva"):
-                        executar_sql("INSERT INTO reservas (nome, casa, data_reserva, status) VALUES (?, ?, ?, ?)", 
-                                     (user['nome'], user['casa'], data_str, "Aguardando Aprovação"))
-                        st.success("Enviado!")
-                        st.rerun()
+                        executar_sql("INSERT INTO reservas (nome, casa, data_reserva, status) VALUES (?, ?, ?, ?)", (user['nome'], user['casa'], data_str, "Aguardando Aprovação"))
+                        st.success("Enviado!"); st.rerun()
 
     # --- ASSEMBLEIAS ---
     elif pagina == "Assembleias":
@@ -280,200 +279,139 @@ else:
         atas = buscar_dados("SELECT * FROM atas ORDER BY id DESC")
         
         if user['perfil'] == "Síndico":
-            with st.expander("➕ Agendar Nova Assembleia"):
-                with st.form("form_assembleia", clear_on_submit=True):
+            with st.expander("➕ Agendar Nova"):
+                with st.form("form_ass", clear_on_submit=True):
                     col1, col2 = st.columns(2)
                     data_reuniao = col1.date_input("Data", value=None)
                     hora_reuniao = col2.time_input("Horário", value=None)
                     novo_local = st.text_input("Local")
                     nova_pauta = st.text_area("Pauta Principal")
                     
-                    if st.form_submit_button("Agendar Assembleia"):
+                    if st.form_submit_button("Agendar"):
                         if data_reuniao and hora_reuniao and novo_local and nova_pauta:
                             data_str = data_reuniao.strftime("%d/%m/%Y")
                             hora_str = hora_reuniao.strftime("%H:%M")
-                            mes_ano_formatado = f"{MESES_PT[data_reuniao.month]}/{data_reuniao.year}"
-                            data_completa = f"{data_str} às {hora_str}"
-                            executar_sql("INSERT INTO assembleias (data_completa, mes_ano, local, pauta) VALUES (?, ?, ?, ?)",
-                                         (data_completa, mes_ano_formatado, novo_local, nova_pauta))
-                            st.success("Agendada!")
+                            mes_ano = f"{MESES_PT[data_reuniao.month]}/{data_reuniao.year}"
+                            executar_sql("INSERT INTO assembleias (data_completa, mes_ano, local, pauta) VALUES (?, ?, ?, ?)", (f"{data_str} às {hora_str}", mes_ano, novo_local, nova_pauta))
                             st.rerun()
-                        else:
-                            st.warning("Preencha todos os campos.")
             
             with st.expander("📂 Publicar Ata"):
-                if not assembleias:
-                    st.warning("Nenhuma assembleia aguardando ata.")
-                else:
+                if assembleias:
                     with st.form("form_ata", clear_on_submit=True):
                         opcoes = {f"{a['data_completa']} - {a['pauta']}": a for a in assembleias}
-                        escolha = st.selectbox("Selecione a assembleia:", list(opcoes.keys()))
-                        arquivo_ata = st.file_uploader("PDF da Ata", type=["pdf"])
-                        
-                        if st.form_submit_button("Publicar Ata"):
-                            if arquivo_ata:
-                                ass = opcoes[escolha]
-                                with open(os.path.join("uploads", arquivo_ata.name), "wb") as f:
-                                    f.write(arquivo_ata.getbuffer())
-                                executar_sql("INSERT INTO atas (mes_ano, data_completa, pauta, nome_arquivo) VALUES (?, ?, ?, ?)",
-                                             (ass['mes_ano'], ass['data_completa'], ass['pauta'], arquivo_ata.name))
-                                executar_sql("UPDATE assembleias SET status='Concluida' WHERE id=?", (ass['id'],))
-                                st.rerun()
-                            else:
-                                st.error("Anexe o PDF.")
+                        escolha = st.selectbox("Assembleia:", list(opcoes.keys()))
+                        arq_ata = st.file_uploader("PDF", type=["pdf"])
+                        if st.form_submit_button("Publicar") and arq_ata:
+                            ass = opcoes[escolha]
+                            with open(os.path.join("uploads", arq_ata.name), "wb") as f: f.write(arq_ata.getbuffer())
+                            executar_sql("INSERT INTO atas (mes_ano, data_completa, pauta, nome_arquivo) VALUES (?, ?, ?, ?)", (ass['mes_ano'], ass['data_completa'], ass['pauta'], arq_ata.name))
+                            executar_sql("UPDATE assembleias SET status='Concluida' WHERE id=?", (ass['id'],))
+                            st.rerun()
             st.divider()
 
         st.subheader("Histórico de Atas")
         for ata in atas:
-            with st.expander(f"📌 {ata['mes_ano']} - {ata['pauta'][:30]}..."):
+            with st.expander(f"📌 {ata['mes_ano']}"):
                 st.write(f"**Data:** {ata['data_completa']} | **Pauta:** {ata['pauta']}")
                 col1, col2 = st.columns(2)
-                caminho = os.path.join("uploads", ata['nome_arquivo'])
-                if os.path.exists(caminho):
-                    with open(caminho, "rb") as f:
-                        col1.download_button("📄 Baixar Ata", data=f, file_name=ata['nome_arquivo'], mime="application/pdf", key=f"d_ata_{ata['id']}")
+                cam = os.path.join("uploads", ata['nome_arquivo'])
+                if os.path.exists(cam):
+                    with open(cam, "rb") as f: col1.download_button("📄 Baixar", data=f, file_name=ata['nome_arquivo'], mime="application/pdf", key=f"d_ata_{ata['id']}")
                 if user['perfil'] == "Síndico" and col2.button("🗑️ Excluir", key=f"x_ata_{ata['id']}"):
-                    executar_sql("DELETE FROM atas WHERE id=?", (ata['id'],))
-                    st.rerun()
+                    executar_sql("DELETE FROM atas WHERE id=?", (ata['id'],)); st.rerun()
 
     # --- PRESTAÇÃO DE CONTAS ---
     elif pagina == "Prestação de Contas":
-        st.title("📊 Balancetes Mensais")
+        st.title("📊 Balancetes")
         balancetes = buscar_dados("SELECT * FROM balancetes ORDER BY id DESC")
         
         if user['perfil'] == "Síndico":
             with st.expander("📂 Novo Balancete"):
-                with st.form("form_balancete", clear_on_submit=True):
+                with st.form("form_bal", clear_on_submit=True):
                     col1, col2 = st.columns(2)
                     mes_sel = col1.selectbox("Mês:", list(MESES_PT.values()))
                     ano_sel = col2.selectbox("Ano:", [2024, 2025, 2026, 2027])
-                    arq_bal = st.file_uploader("PDF do Balancete", type=["pdf"])
-                    
-                    if st.form_submit_button("Salvar Balancete") and arq_bal:
+                    arq_bal = st.file_uploader("PDF", type=["pdf"])
+                    if st.form_submit_button("Salvar") and arq_bal:
                         titulo = f"Balancete {mes_sel}/{ano_sel}"
-                        with open(os.path.join("uploads", arq_bal.name), "wb") as f:
-                            f.write(arq_bal.getbuffer())
-                        executar_sql("INSERT INTO balancetes (titulo, nome_arquivo) VALUES (?, ?)", (titulo, arq_bal.name))
-                        st.rerun()
+                        with open(os.path.join("uploads", arq_bal.name), "wb") as f: f.write(arq_bal.getbuffer())
+                        executar_sql("INSERT INTO balancetes (titulo, nome_arquivo) VALUES (?, ?)", (titulo, arq_bal.name)); st.rerun()
             st.divider()
             
         for bal in balancetes:
             st.write(f"**{bal['titulo']}**")
             col1, col2 = st.columns(2)
-            caminho = os.path.join("uploads", bal['nome_arquivo'])
-            if os.path.exists(caminho):
-                with open(caminho, "rb") as f:
-                    col1.download_button("📄 Baixar", data=f, file_name=bal['nome_arquivo'], mime="application/pdf", key=f"d_bal_{bal['id']}")
+            cam = os.path.join("uploads", bal['nome_arquivo'])
+            if os.path.exists(cam):
+                with open(cam, "rb") as f: col1.download_button("📄 Baixar", data=f, file_name=bal['nome_arquivo'], mime="application/pdf", key=f"d_bal_{bal['id']}")
             if user['perfil'] == "Síndico" and col2.button("🗑️ Excluir", key=f"x_bal_{bal['id']}"):
-                executar_sql("DELETE FROM balancetes WHERE id=?", (bal['id'],))
-                st.rerun()
+                executar_sql("DELETE FROM balancetes WHERE id=?", (bal['id'],)); st.rerun()
             st.divider()
 
-    # --- MORADORES E MENSAGENS (MÓDULOS NOVOS) ---
-
+    # --- COMUNICAÇÃO E MULTAS ---
     elif pagina == "Falar com o Síndico":
         st.title("✉️ Fale com a Administração")
-        st.write("Envie dúvidas, sugestões ou reclamações diretas para o síndico.")
         with st.form("form_msg", clear_on_submit=True):
             assunto = st.text_input("Assunto")
-            texto = st.text_area("Sua mensagem")
-            if st.form_submit_button("Enviar Mensagem"):
+            texto = st.text_area("Mensagem")
+            if st.form_submit_button("Enviar"):
                 if assunto and texto:
                     hoje = datetime.datetime.now().strftime("%d/%m/%Y às %H:%M")
-                    executar_sql("INSERT INTO mensagens (nome, casa, assunto, texto, data_envio) VALUES (?, ?, ?, ?, ?)",
-                                 (user['nome'], user['casa'], assunto, texto, hoje))
-                    st.success("Mensagem enviada com sucesso! O síndico entrará em contato em breve.")
-                else:
-                    st.warning("Preencha o assunto e a mensagem.")
+                    executar_sql("INSERT INTO mensagens (nome, casa, assunto, texto, data_envio) VALUES (?, ?, ?, ?, ?)", (user['nome'], user['casa'], assunto, texto, hoje))
+                    st.success("Mensagem enviada!"); st.rerun()
 
     elif pagina == "Mensagens":
         st.title("📥 Caixa de Mensagens")
         mensagens = buscar_dados("SELECT * FROM mensagens ORDER BY id DESC")
-        if not mensagens:
-            st.info("Sua caixa de entrada está vazia.")
         for msg in mensagens:
             with st.expander(f"✉️ {msg['assunto']} - Casa {msg['casa']}"):
-                st.caption(f"Enviado por {msg['nome']} em {msg['data_envio']}")
+                st.caption(f"{msg['nome']} em {msg['data_envio']}")
                 st.write(msg['texto'])
-                if st.button("🗑️ Arquivar / Apagar Mensagem", key=f"x_msg_{msg['id']}"):
-                    executar_sql("DELETE FROM mensagens WHERE id=?", (msg['id'],))
-                    st.rerun()
+                if st.button("🗑️ Apagar", key=f"x_msg_{msg['id']}"):
+                    executar_sql("DELETE FROM mensagens WHERE id=?", (msg['id'],)); st.rerun()
 
     elif pagina == "Moradores":
-        st.title("👥 Gestão de Moradores")
-        st.write("Controle os acessos ao aplicativo.")
+        st.title("👥 Moradores")
         moradores = buscar_dados("SELECT * FROM usuarios WHERE perfil='Morador' ORDER BY casa ASC")
-        
-        if not moradores:
-            st.write("Nenhum morador cadastrado.")
         for m in moradores:
-            with st.container():
-                col1, col2 = st.columns([3, 1])
-                col1.write(f"🏠 **Casa {m['casa']}** - {m['nome']} ({m['email']})")
-                if col2.button("🗑️ Excluir Acesso", key=f"x_user_{m['id']}"):
-                    executar_sql("DELETE FROM usuarios WHERE id=?", (m['id'],))
-                    st.rerun()
-                st.divider()
+            col1, col2 = st.columns([3, 1])
+            col1.write(f"🏠 **Casa {m['casa']}** - {m['nome']}")
+            if col2.button("🗑️ Excluir", key=f"x_user_{m['id']}"):
+                executar_sql("DELETE FROM usuarios WHERE id=?", (m['id'],)); st.rerun()
+            st.divider()
 
     elif pagina == "Multas" or pagina == "Minhas Multas":
-        st.title("🛑 Infrações e Multas")
-        
+        st.title("🛑 Multas")
         if user['perfil'] == "Síndico":
-            moradores = buscar_dados("SELECT * FROM usuarios WHERE perfil='Morador'")
-            with st.expander("➕ Aplicar Nova Multa"):
-                if not moradores:
-                    st.warning("Cadastre moradores primeiro.")
-                else:
-                    with st.form("form_multa", clear_on_submit=True):
-                        opcoes_casas = [f"Casa {m['casa']} - {m['nome']}" for m in moradores]
-                        infrator = st.selectbox("Selecione o Infrator:", opcoes_casas)
-                        motivo = st.text_input("Motivo da Multa (Resumo):")
-                        arq_multa = st.file_uploader("Anexar Documento/Boleto da Multa (PDF)", type=["pdf"])
-                        
-                        if st.form_submit_button("Aplicar Multa e Notificar"):
-                            if infrator and motivo and arq_multa:
-                                # Extrai apenas o número da casa da string selecionada (Ex: "Casa 12 - João" -> "12")
-                                num_casa = infrator.split(" - ")[0].replace("Casa ", "")
-                                hoje = datetime.datetime.now().strftime("%d/%m/%Y")
-                                
-                                with open(os.path.join("uploads", arq_multa.name), "wb") as f:
-                                    f.write(arq_multa.getbuffer())
-                                    
-                                executar_sql("INSERT INTO multas (casa, motivo, data_aplicacao, nome_arquivo) VALUES (?, ?, ?, ?)",
-                                             (num_casa, motivo, hoje, arq_multa.name))
-                                st.success(f"Multa aplicada para a Casa {num_casa}!")
-                                st.rerun()
-                            else:
-                                st.warning("Preencha todos os campos e anexe o PDF.")
+            with st.expander("➕ Aplicar Multa"):
+                moradores = buscar_dados("SELECT * FROM usuarios WHERE perfil='Morador'")
+                with st.form("form_multa", clear_on_submit=True):
+                    infrator = st.selectbox("Infrator:", [f"Casa {m['casa']} - {m['nome']}" for m in moradores]) if moradores else None
+                    motivo = st.text_input("Motivo:")
+                    arq_multa = st.file_uploader("PDF", type=["pdf"])
+                    if st.form_submit_button("Aplicar") and infrator and motivo and arq_multa:
+                        num_casa = infrator.split(" - ")[0].replace("Casa ", "")
+                        hoje = datetime.datetime.now().strftime("%d/%m/%Y")
+                        with open(os.path.join("uploads", arq_multa.name), "wb") as f: f.write(arq_multa.getbuffer())
+                        executar_sql("INSERT INTO multas (casa, motivo, data_aplicacao, nome_arquivo) VALUES (?, ?, ?, ?)", (num_casa, motivo, hoje, arq_multa.name)); st.rerun()
             
-            st.subheader("Histórico Geral de Multas")
-            todas_multas = buscar_dados("SELECT * FROM multas ORDER BY id DESC")
-            if not todas_multas:
-                st.write("Nenhuma multa registrada.")
-            for m in todas_multas:
+            st.subheader("Histórico")
+            for m in buscar_dados("SELECT * FROM multas ORDER BY id DESC"):
                 st.write(f"🏠 **Casa {m['casa']}** | {m['data_aplicacao']} - {m['motivo']}")
                 col1, col2 = st.columns(2)
-                caminho = os.path.join("uploads", m['nome_arquivo'])
-                if os.path.exists(caminho):
-                    with open(caminho, "rb") as f:
-                        col1.download_button("📄 Baixar Documento", data=f, file_name=m['nome_arquivo'], mime="application/pdf", key=f"d_multa_{m['id']}")
-                if col2.button("🗑️ Cancelar Multa", key=f"x_multa_{m['id']}"):
-                    executar_sql("DELETE FROM multas WHERE id=?", (m['id'],))
-                    st.rerun()
+                cam = os.path.join("uploads", m['nome_arquivo'])
+                if os.path.exists(cam):
+                    with open(cam, "rb") as f: col1.download_button("📄 Baixar", data=f, file_name=m['nome_arquivo'], mime="application/pdf", key=f"d_multa_{m['id']}")
+                if col2.button("🗑️ Cancelar", key=f"x_multa_{m['id']}"):
+                    executar_sql("DELETE FROM multas WHERE id=?", (m['id'],)); st.rerun()
                 st.divider()
 
-        else: # Morador visualiza apenas suas multas
-            st.write("Consulte abaixo se há pendências ou infrações vinculadas à sua unidade.")
+        else:
             minhas_multas = buscar_dados("SELECT * FROM multas WHERE casa=? ORDER BY id DESC", (user['casa'],))
-            
-            if not minhas_multas:
-                st.success("🎉 Parabéns! Nenhuma multa registrada para a sua casa.")
-            else:
-                for m in minhas_multas:
-                    st.error(f"⚠️ **Notificação de Multa:** {m['motivo']}")
-                    st.caption(f"Aplicada em: {m['data_aplicacao']}")
-                    caminho = os.path.join("uploads", m['nome_arquivo'])
-                    if os.path.exists(caminho):
-                        with open(caminho, "rb") as f:
-                            st.download_button("📄 Baixar Documento / Boleto", data=f, file_name=m['nome_arquivo'], mime="application/pdf", key=f"d_minhamulta_{m['id']}")
-                    st.divider()
+            if not minhas_multas: st.success("🎉 Nenhuma multa para a sua casa.")
+            for m in minhas_multas:
+                st.error(f"⚠️ {m['motivo']}")
+                cam = os.path.join("uploads", m['nome_arquivo'])
+                if os.path.exists(cam):
+                    with open(cam, "rb") as f: st.download_button("📄 Baixar Boleto", data=f, file_name=m['nome_arquivo'], mime="application/pdf", key=f"d_minha_{m['id']}")
+                st.divider()
