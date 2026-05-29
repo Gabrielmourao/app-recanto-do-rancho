@@ -88,8 +88,8 @@ if st.session_state['usuario_logado'] is None:
     else: # Cadastro
         st.subheader("Crie seu acesso")
         nome_cad = st.text_input("Nome Completo")
-        email_cad = st.text_input("E-mail Pessoal")
-        casa_cad = st.text_input("Número da Casa/Apt")
+        email_cad = st.text_input("E-mail")
+        casa_cad = st.text_input("Número da Casa")
         senha_cad = st.text_input("Crie uma Senha", type="password")
         
         if st.button("Criar Conta", key="btn_cad"):
