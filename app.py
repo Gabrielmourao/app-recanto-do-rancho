@@ -39,7 +39,10 @@ def inicializar_banco():
     executar_sql('''CREATE TABLE IF NOT EXISTS reservas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, casa TEXT NOT NULL, data_reserva TEXT NOT NULL, status TEXT NOT NULL)''')
     executar_sql('''CREATE TABLE IF NOT EXISTS balancetes (id INTEGER PRIMARY KEY AUTOINCREMENT, titulo TEXT NOT NULL, nome_arquivo TEXT NOT NULL)''')
     executar_sql('''CREATE TABLE IF NOT EXISTS multas (id INTEGER PRIMARY KEY AUTOINCREMENT, casa TEXT NOT NULL, motivo TEXT NOT NULL, data_aplicacao TEXT NOT NULL, nome_arquivo TEXT NOT NULL)''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS mensagens (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, casa TEXT NOT NULL, assunto TEXT NOT NULL, texto TEXT NOT NULL, data_envio TEXT NOT NULL)''')
+    
+    # NOVAS TABELAS DE BATE-PAPO (TICKETS)
+    executar_sql('''CREATE TABLE IF NOT EXISTS chamados (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, casa TEXT NOT NULL, assunto TEXT NOT NULL, status TEXT DEFAULT 'Aberto', data_criacao TEXT NOT NULL)''')
+    executar_sql('''CREATE TABLE IF NOT EXISTS respostas (id INTEGER PRIMARY KEY AUTOINCREMENT, chamado_id INTEGER NOT NULL, remetente TEXT NOT NULL, texto TEXT NOT NULL, data_envio TEXT NOT NULL)''')
     
     sindico_existe = buscar_dados("SELECT * FROM usuarios WHERE perfil='Síndico'")
     if not sindico_existe:
@@ -47,6 +50,16 @@ def inicializar_banco():
                      ("Administrador", "sindico@recanto.com", "Sede", "admin123", "Síndico"))
 
 inicializar_banco()
+
+# Função para criar um novo chamado e já inserir a primeira mensagem
+def criar_novo_chamado(nome, casa, assunto, texto, data_envio):
+    conn = get_conexao()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO chamados (nome, casa, assunto, data_criacao) VALUES (?, ?, ?, ?)", (nome, casa, assunto, data_envio))
+    novo_id = cursor.lastrowid # Pega o ID gerado agora
+    cursor.execute("INSERT INTO respostas (chamado_id, remetente, texto, data_envio) VALUES (?, ?, ?, ?)", (novo_id, nome, texto, data_envio))
+    conn.commit()
+    conn.close()
 
 MESES_PT = {
     1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
@@ -72,7 +85,11 @@ if 'tela_acesso' not in st.session_state:
 if st.session_state['usuario_logado'] is None:
     st.title("🔐 Portal Recanto do Rancho")
     
-    escolha_tela = st.radio("Selecione uma opção:", ["Login", "Cadastrar Novo Morador"], horizontal=True)
+    # Lógica ajustada para garantir a troca de aba instantânea
+    opcoes_acesso = ["Login", "Cadastrar Novo Morador"]
+    idx_acesso = opcoes_acesso.index(st.session_state['tela_acesso'])
+    
+    escolha_tela = st.radio("Selecione uma opção:", opcoes_acesso, horizontal=True, index=idx_acesso)
     
     if escolha_tela != st.session_state['tela_acesso']:
         st.session_state['tela_acesso'] = escolha_tela
@@ -153,7 +170,6 @@ else:
     pagina = st.session_state['pagina_atual']
 
     # --- BOTÃO HOME GLOBAL ---
-    # Só aparece se a pessoa NÃO estiver na Página Inicial
     if pagina != "Página Inicial":
         if st.button("🏠 Voltar para a Página Inicial", use_container_width=True):
             navegar_para("Página Inicial")
@@ -352,27 +368,66 @@ else:
                 executar_sql("DELETE FROM balancetes WHERE id=?", (bal['id'],)); st.rerun()
             st.divider()
 
-    # --- COMUNICAÇÃO E MULTAS ---
-    elif pagina == "Falar com o Síndico":
-        st.title("✉️ Fale com a Administração")
-        with st.form("form_msg", clear_on_submit=True):
-            assunto = st.text_input("Assunto")
-            texto = st.text_area("Mensagem")
-            if st.form_submit_button("Enviar"):
-                if assunto and texto:
-                    hoje = datetime.datetime.now().strftime("%d/%m/%Y às %H:%M")
-                    executar_sql("INSERT INTO mensagens (nome, casa, assunto, texto, data_envio) VALUES (?, ?, ?, ?, ?)", (user['nome'], user['casa'], assunto, texto, hoje))
-                    st.success("Mensagem enviada!"); st.rerun()
+    # --- COMUNICAÇÃO (BATE-PAPO) E MULTAS ---
+    elif pagina == "Falar com o Síndico" or pagina == "Mensagens":
+        st.title("💬 Central de Atendimento")
+        
+        # Filtro de conversas
+        if user['perfil'] == "Síndico":
+            st.write("Caixa de entrada da Administração.")
+            chamados = buscar_dados("SELECT * FROM chamados ORDER BY id DESC")
+        else:
+            st.write("Converse com a administração.")
+            chamados = buscar_dados("SELECT * FROM chamados WHERE casa=? ORDER BY id DESC", (user['casa'],))
+            
+            with st.expander("➕ Iniciar Nova Conversa"):
+                with st.form("form_novo_chamado", clear_on_submit=True):
+                    assunto = st.text_input("Assunto")
+                    texto = st.text_area("Primeira Mensagem")
+                    if st.form_submit_button("Enviar"):
+                        if assunto and texto:
+                            hoje = datetime.datetime.now().strftime("%d/%m/%Y às %H:%M")
+                            criar_novo_chamado(user['nome'], user['casa'], assunto, texto, hoje)
+                            st.success("Enviado!"); st.rerun()
 
-    elif pagina == "Mensagens":
-        st.title("📥 Caixa de Mensagens")
-        mensagens = buscar_dados("SELECT * FROM mensagens ORDER BY id DESC")
-        for msg in mensagens:
-            with st.expander(f"✉️ {msg['assunto']} - Casa {msg['casa']}"):
-                st.caption(f"{msg['nome']} em {msg['data_envio']}")
-                st.write(msg['texto'])
-                if st.button("🗑️ Apagar", key=f"x_msg_{msg['id']}"):
-                    executar_sql("DELETE FROM mensagens WHERE id=?", (msg['id'],)); st.rerun()
+        st.subheader("Minhas Conversas")
+        if not chamados:
+            st.info("Nenhuma conversa registrada.")
+            
+        for ch in chamados:
+            # Mostra um alerta visual se estiver aberto ou fechado
+            status_icone = "🟢" if ch['status'] == "Aberto" else "🔴"
+            
+            with st.expander(f"{status_icone} {ch['assunto']} - Casa {ch['casa']} ({ch['status']})"):
+                respostas = buscar_dados("SELECT * FROM respostas WHERE chamado_id=? ORDER BY id ASC", (ch['id'],))
+                
+                # Renderiza o chat
+                for r in respostas:
+                    if r['remetente'] == "Síndico" or r['remetente'] == "Administrador":
+                        st.info(f"👔 **Administração** ({r['data_envio']}):\n\n{r['texto']}")
+                    else:
+                        st.success(f"👤 **{r['remetente']}** ({r['data_envio']}):\n\n{r['texto']}")
+                
+                # Opção de responder se estiver aberto
+                if ch['status'] == "Aberto":
+                    st.divider()
+                    texto_resposta = st.text_input("Escreva sua resposta...", key=f"txt_{ch['id']}")
+                    
+                    col1, col2 = st.columns(2)
+                    if col1.button("Enviar Resposta", key=f"btn_resp_{ch['id']}"):
+                        if texto_resposta:
+                            hoje = datetime.datetime.now().strftime("%d/%m/%Y às %H:%M")
+                            # Se for o síndico respondendo, grava o nome dele (Síndico)
+                            executar_sql("INSERT INTO respostas (chamado_id, remetente, texto, data_envio) VALUES (?, ?, ?, ?)", 
+                                         (ch['id'], user['nome'], texto_resposta, hoje))
+                            st.rerun()
+                            
+                    if user['perfil'] == "Síndico":
+                        if col2.button("🚫 Encerrar Conversa", key=f"btn_encer_{ch['id']}"):
+                            executar_sql("UPDATE chamados SET status='Encerrado' WHERE id=?", (ch['id'],))
+                            st.rerun()
+                else:
+                    st.error("Esta conversa foi encerrada pelo Síndico.")
 
     elif pagina == "Moradores":
         st.title("👥 Moradores")
