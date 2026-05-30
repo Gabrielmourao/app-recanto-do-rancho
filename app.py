@@ -119,7 +119,6 @@ if st.session_state['usuario_logado'] is None:
 else:
     user = st.session_state['usuario_logado'] 
     
-    # Extrai o primeiro e segundo nome para criar a bolinha com as iniciais
     partes_nome = user['nome'].split()
     iniciais = "".join([n[0] for n in partes_nome[:2]]).upper()
     primeiro_nome = partes_nome[0].upper()
@@ -129,7 +128,6 @@ else:
     else:
         opcoes_menu = ["Página Inicial", "Comunicados", "Reservas", "Assembleias", "Prestação de Contas", "Falar com o Síndico", "Minhas Multas"]
 
-    # --- DESIGN DA SIDEBAR INSPIRADO NA IMAGEM 1 ---
     st.sidebar.markdown(f"""
     <div style="text-align: center; padding: 10px 0;">
         <div style="background-color: #0b5394; color: white; border-radius: 50%; width: 60px; height: 60px; line-height: 60px; font-size: 22px; font-weight: bold; margin: 0 auto;">
@@ -154,13 +152,20 @@ else:
 
     pagina = st.session_state['pagina_atual']
 
-    # --- PÁGINA INICIAL INSPIRADA NA IMAGEM 2 ---
+    # --- BOTÃO HOME GLOBAL ---
+    # Só aparece se a pessoa NÃO estiver na Página Inicial
+    if pagina != "Página Inicial":
+        if st.button("🏠 Voltar para a Página Inicial", use_container_width=True):
+            navegar_para("Página Inicial")
+            st.rerun()
+        st.divider()
+
+    # --- PÁGINA INICIAL ---
     if pagina == "Página Inicial":
         st.markdown(f"<h3 style='text-align: center; color: gray; font-weight: normal; margin-bottom: 0;'>Bem-vindo, {primeiro_nome}</h3>", unsafe_allow_html=True)
         st.markdown("<h1 style='text-align: center; margin-top: 0;'>Recanto do Rancho</h1>", unsafe_allow_html=True)
         st.write("")
         
-        # Grid de botões simulando cards
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -184,7 +189,6 @@ else:
 
         st.divider()
         
-        # Resumo de Avisos na tela inicial
         ultimos_avisos = buscar_dados("SELECT * FROM comunicados ORDER BY id DESC LIMIT 3")
         assembleias_agendadas = buscar_dados("SELECT * FROM assembleias WHERE status='Agendada' ORDER BY id DESC LIMIT 2")
         
@@ -243,7 +247,7 @@ else:
             for r in reservas_gerais:
                 st.write(f"**{r['data_reserva']}** | {r['nome']} (Casa {r['casa']}) | Status: {r['status']}")
 
-        else: # Morador
+        else: 
             st.subheader("Minhas Solicitações")
             minhas_reservas = buscar_dados("SELECT * FROM reservas WHERE casa=? ORDER BY id DESC", (user['casa'],))
             if not minhas_reservas: st.write("Você não tem solicitações.")
