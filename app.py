@@ -34,10 +34,10 @@ def aplicar_estilo_app():
         }
         div[data-testid="stExpander"] {
             border-radius: 12px !important;
-            border: none;
+            border: 1px solid rgba(200, 200, 200, 0.2); /* Borda suave que funciona no claro e escuro */
             box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-            background-color: #ffffff;
             margin-bottom: 10px;
+            /* Fundo branco fixo removido para não bugar o Modo Escuro */
         }
         div[data-testid="stAlert"] {
             border-radius: 10px;
@@ -80,7 +80,7 @@ def inicializar_banco():
     executar_sql('''CREATE TABLE IF NOT EXISTS atas (id INTEGER PRIMARY KEY AUTOINCREMENT, mes_ano TEXT NOT NULL, data_completa TEXT NOT NULL, pauta TEXT NOT NULL, nome_arquivo TEXT NOT NULL)''')
     executar_sql('''CREATE TABLE IF NOT EXISTS reservas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, casa TEXT NOT NULL, data_reserva TEXT NOT NULL, status TEXT NOT NULL)''')
     
-    # ATUALIZAÇÃO SEGURA DO BANCO DE DADOS: Adiciona colunas para o boleto se não existirem
+    # ATUALIZAÇÃO SEGURA DO BANCO DE DADOS
     try: executar_sql("ALTER TABLE reservas ADD COLUMN boleto TEXT")
     except: pass
     try: executar_sql("ALTER TABLE reservas ADD COLUMN comprovante TEXT")
@@ -291,9 +291,7 @@ else:
         if user['perfil'] == "Síndico":
             st.subheader("Painel de Solicitações e Pagamentos")
             
-            # Filtra solicitações que precisam de alguma ação
             pendentes = [r for r in reservas_gerais if r['status'] in ["Aguardando Taxa", "Em Análise", "Aguardando Pagamento"]]
-            
             if not pendentes: st.write("Nenhuma ação pendente no momento.")
             
             for r in pendentes:
@@ -382,7 +380,6 @@ else:
                 else:
                     st.info("✅ Data disponível!")
                     if st.button("Solicitar Data"):
-                        # Inicia no passo 1 da transação
                         executar_sql("INSERT INTO reservas (nome, casa, data_reserva, status) VALUES (?, ?, ?, ?)", (user['nome'], user['casa'], data_str, "Aguardando Taxa"))
                         st.success("Enviado! Aguarde a liberação da cobrança."); st.rerun()
 
