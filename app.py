@@ -3,7 +3,7 @@ import sqlite3
 import datetime
 import os
 
-# Configuração da página - Inicia com a aba lateral fechada
+# Configuração da página
 st.set_page_config(page_title="Recanto do Rancho", layout="wide", initial_sidebar_state="collapsed")
 
 # ==========================================
@@ -39,8 +39,6 @@ def inicializar_banco():
     executar_sql('''CREATE TABLE IF NOT EXISTS reservas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, casa TEXT NOT NULL, data_reserva TEXT NOT NULL, status TEXT NOT NULL)''')
     executar_sql('''CREATE TABLE IF NOT EXISTS balancetes (id INTEGER PRIMARY KEY AUTOINCREMENT, titulo TEXT NOT NULL, nome_arquivo TEXT NOT NULL)''')
     executar_sql('''CREATE TABLE IF NOT EXISTS multas (id INTEGER PRIMARY KEY AUTOINCREMENT, casa TEXT NOT NULL, motivo TEXT NOT NULL, data_aplicacao TEXT NOT NULL, nome_arquivo TEXT NOT NULL)''')
-    
-    # TABELAS DE BATE-PAPO (TICKETS)
     executar_sql('''CREATE TABLE IF NOT EXISTS chamados (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, casa TEXT NOT NULL, assunto TEXT NOT NULL, status TEXT DEFAULT 'Aberto', data_criacao TEXT NOT NULL)''')
     executar_sql('''CREATE TABLE IF NOT EXISTS respostas (id INTEGER PRIMARY KEY AUTOINCREMENT, chamado_id INTEGER NOT NULL, remetente TEXT NOT NULL, texto TEXT NOT NULL, data_envio TEXT NOT NULL)''')
     
@@ -51,7 +49,6 @@ def inicializar_banco():
 
 inicializar_banco()
 
-# Função para criar um novo chamado e já inserir a primeira mensagem
 def criar_novo_chamado(nome, casa, assunto, texto, data_envio):
     conn = get_conexao()
     cursor = conn.cursor()
@@ -367,16 +364,10 @@ else:
                 executar_sql("DELETE FROM balancetes WHERE id=?", (bal['id'],)); st.rerun()
             st.divider()
 
-    # --- COMUNICAÇÃO (BATE-PAPO) E MULTAS ---
+    # --- COMUNICAÇÃO (BATE-PAPO) ---
     elif pagina == "Falar com o Síndico" or pagina == "Mensagens":
         st.title("💬 Central de Atendimento")
         
-        # Botão de Atualização Manual para o Chat
-        if st.button("🔄 Atualizar Conversas", use_container_width=True):
-            st.rerun()
-        st.divider()
-        
-        # Filtro de conversas
         if user['perfil'] == "Síndico":
             st.write("Caixa de entrada da Administração.")
             chamados = buscar_dados("SELECT * FROM chamados ORDER BY id DESC")
@@ -399,19 +390,35 @@ else:
             st.info("Nenhuma conversa registrada.")
             
         for ch in chamados:
-            status_icone = "🟢" if ch['status'] == "Aberto" else "🔴"
+            # Puxa as respostas para saber quem mandou a última e exibir no chat
+            respostas = buscar_dados("SELECT * FROM respostas WHERE chamado_id=? ORDER BY id ASC", (ch['id'],))
             
-            with st.expander(f"{status_icone} {ch['assunto']} - Casa {ch['casa']} ({ch['status']})"):
-                respostas = buscar_dados("SELECT * FROM respostas WHERE chamado_id=? ORDER BY id ASC", (ch['id'],))
+            # Lógica inteligente para saber se tem mensagem nova para o usuário atual
+            alerta_nova = ""
+            if respostas and ch['status'] == "Aberto":
+                ultima_msg = respostas[-1]
+                if user['perfil'] == "Síndico" and ultima_msg['remetente'] != "Administrador" and ultima_msg['remetente'] != "Síndico":
+                    alerta_nova = "🔴 [NOVA] "
+                elif user['perfil'] == "Morador" and (ultima_msg['remetente'] == "Administrador" or ultima_msg['remetente'] == "Síndico"):
+                    alerta_nova = "🔴 [NOVA] "
+                    
+            status_icone = "🟢" if ch['status'] == "Aberto" else "⚪"
+            
+            with st.expander(f"{alerta_nova}{status_icone} {ch['assunto']} - Casa {ch['casa']}"):
                 
-                # Renderiza o chat
+                # Renderiza o botão de atualizar discreto no topo da conversa
+                if st.button("🔄 Atualizar Chat", key=f"upd_{ch['id']}"):
+                    st.rerun()
+                st.divider()
+
+                # Renderiza as mensagens
                 for r in respostas:
                     if r['remetente'] == "Síndico" or r['remetente'] == "Administrador":
                         st.info(f"👔 **Administração** ({r['data_envio']}):\n\n{r['texto']}")
                     else:
                         st.success(f"👤 **{r['remetente']}** ({r['data_envio']}):\n\n{r['texto']}")
                 
-                # Resposta dentro de um form para limpar o texto
+                # Resposta dentro de um form
                 if ch['status'] == "Aberto":
                     st.divider()
                     with st.form(key=f"form_resp_{ch['id']}", clear_on_submit=True):
@@ -433,6 +440,7 @@ else:
                 else:
                     st.error("Esta conversa foi encerrada pelo Síndico.")
 
+    # --- MORADORES ---
     elif pagina == "Moradores":
         st.title("👥 Moradores")
         moradores = buscar_dados("SELECT * FROM usuarios WHERE perfil='Morador' ORDER BY casa ASC")
@@ -443,6 +451,7 @@ else:
                 executar_sql("DELETE FROM usuarios WHERE id=?", (m['id'],)); st.rerun()
             st.divider()
 
+    # --- MULTAS ---
     elif pagina == "Multas" or pagina == "Minhas Multas":
         st.title("🛑 Multas")
         if user['perfil'] == "Síndico":
