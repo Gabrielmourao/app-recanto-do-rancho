@@ -3,8 +3,50 @@ import sqlite3
 import datetime
 import os
 
-# Configuração da página
+# Configuração da página - Inicia com a aba lateral fechada
 st.set_page_config(page_title="Recanto do Rancho", layout="wide", initial_sidebar_state="collapsed")
+
+# Estilo para deixar com cara de App
+def aplicar_estilo_app():
+    st.markdown("""
+    <style>
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        .block-container {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+        }
+        div.stButton > button {
+            border-radius: 15px;
+            border: 1px solid #e0e0e0;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            transition: all 0.2s ease-in-out;
+            height: auto;
+            padding: 15px 0;
+            font-weight: 600;
+        }
+        div.stButton > button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 12px rgba(0,0,0,0.1);
+            border-color: #0b5394;
+            color: #0b5394;
+        }
+        div[data-testid="stExpander"] {
+            border-radius: 12px !important;
+            border: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            background-color: #ffffff;
+            margin-bottom: 10px;
+        }
+        div[data-testid="stAlert"] {
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+aplicar_estilo_app()
 
 # ==========================================
 # 1. BANCO DE DADOS E CONFIGURAÇÕES
@@ -37,6 +79,13 @@ def inicializar_banco():
     executar_sql('''CREATE TABLE IF NOT EXISTS assembleias (id INTEGER PRIMARY KEY AUTOINCREMENT, data_completa TEXT NOT NULL, mes_ano TEXT NOT NULL, local TEXT NOT NULL, pauta TEXT NOT NULL, status TEXT DEFAULT 'Agendada')''')
     executar_sql('''CREATE TABLE IF NOT EXISTS atas (id INTEGER PRIMARY KEY AUTOINCREMENT, mes_ano TEXT NOT NULL, data_completa TEXT NOT NULL, pauta TEXT NOT NULL, nome_arquivo TEXT NOT NULL)''')
     executar_sql('''CREATE TABLE IF NOT EXISTS reservas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, casa TEXT NOT NULL, data_reserva TEXT NOT NULL, status TEXT NOT NULL)''')
+    
+    # ATUALIZAÇÃO SEGURA DO BANCO DE DADOS: Adiciona colunas para o boleto se não existirem
+    try: executar_sql("ALTER TABLE reservas ADD COLUMN boleto TEXT")
+    except: pass
+    try: executar_sql("ALTER TABLE reservas ADD COLUMN comprovante TEXT")
+    except: pass
+
     executar_sql('''CREATE TABLE IF NOT EXISTS balancetes (id INTEGER PRIMARY KEY AUTOINCREMENT, titulo TEXT NOT NULL, nome_arquivo TEXT NOT NULL)''')
     executar_sql('''CREATE TABLE IF NOT EXISTS multas (id INTEGER PRIMARY KEY AUTOINCREMENT, casa TEXT NOT NULL, motivo TEXT NOT NULL, data_aplicacao TEXT NOT NULL, nome_arquivo TEXT NOT NULL)''')
     executar_sql('''CREATE TABLE IF NOT EXISTS chamados (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, casa TEXT NOT NULL, assunto TEXT NOT NULL, status TEXT DEFAULT 'Aberto', data_criacao TEXT NOT NULL)''')
@@ -179,19 +228,16 @@ else:
         st.write("")
         
         col1, col2, col3 = st.columns(3)
-        
         with col1:
             if st.button("📢\nComunicados", use_container_width=True): navegar_para("Comunicados"); st.rerun()
             if st.button("📊\nContas", use_container_width=True): navegar_para("Prestação de Contas"); st.rerun()
             if user['perfil'] == "Síndico":
                 if st.button("📥\nMensagens", use_container_width=True): navegar_para("Mensagens"); st.rerun()
-
         with col2:
             if st.button("📅\nReservas", use_container_width=True): navegar_para("Reservas"); st.rerun()
             if st.button("🤝\nAssembleias", use_container_width=True): navegar_para("Assembleias"); st.rerun()
             if user['perfil'] == "Síndico":
                 if st.button("👥\nMoradores", use_container_width=True): navegar_para("Moradores"); st.rerun()
-
         with col3:
             if user['perfil'] == "Síndico":
                 if st.button("🛑\nMultas", use_container_width=True): navegar_para("Multas"); st.rerun()
@@ -200,7 +246,6 @@ else:
                 if st.button("🛑\nMinhas Multas", use_container_width=True): navegar_para("Minhas Multas"); st.rerun()
 
         st.divider()
-        
         ultimos_avisos = buscar_dados("SELECT * FROM comunicados ORDER BY id DESC LIMIT 3")
         assembleias_agendadas = buscar_dados("SELECT * FROM assembleias WHERE status='Agendada' ORDER BY id DESC LIMIT 2")
         
@@ -238,37 +283,89 @@ else:
             st.write(aviso['mensagem'])
             st.divider()
 
-    # --- RESERVAS ---
+    # --- RESERVAS (FLUXO DE PAGAMENTO) ---
     elif pagina == "Reservas":
         st.title("📅 Reservas da Churrasqueira")
         reservas_gerais = buscar_dados("SELECT * FROM reservas ORDER BY id DESC")
         
         if user['perfil'] == "Síndico":
-            st.subheader("Painel de Solicitações")
-            pendentes = [r for r in reservas_gerais if r['status'] == "Aguardando Aprovação"]
-            if not pendentes: st.write("Nenhuma solicitação pendente.")
+            st.subheader("Painel de Solicitações e Pagamentos")
+            
+            # Filtra solicitações que precisam de alguma ação
+            pendentes = [r for r in reservas_gerais if r['status'] in ["Aguardando Taxa", "Em Análise", "Aguardando Pagamento"]]
+            
+            if not pendentes: st.write("Nenhuma ação pendente no momento.")
+            
             for r in pendentes:
-                with st.expander(f"Solicitação: {r['data_reserva']} - {r['nome']} (Casa {r['casa']})", expanded=True):
-                    col1, col2 = st.columns(2)
-                    if col1.button("✅ Aprovar", key=f"apr_{r['id']}"):
-                        executar_sql("UPDATE reservas SET status='Aprovada' WHERE id=?", (r['id'],)); st.rerun()
-                    if col2.button("❌ Reprovar", key=f"rep_{r['id']}"):
-                        executar_sql("UPDATE reservas SET status='Reprovada' WHERE id=?", (r['id'],)); st.rerun()
+                with st.expander(f"📌 {r['data_reserva']} - {r['nome']} (Casa {r['casa']}) | Status: {r['status']}", expanded=True):
+                    
+                    if r['status'] == "Aguardando Taxa":
+                        st.info("O morador solicitou esta data. Envie o boleto/chave Pix para ele pagar.")
+                        arq_boleto = st.file_uploader("Upload do Boleto/Pix (PDF ou Imagem)", key=f"up_bol_{r['id']}")
+                        if st.button("Enviar Cobrança", key=f"btn_bol_{r['id']}"):
+                            if arq_boleto:
+                                with open(os.path.join("uploads", arq_boleto.name), "wb") as f: f.write(arq_boleto.getbuffer())
+                                executar_sql("UPDATE reservas SET status='Aguardando Pagamento', boleto=? WHERE id=?", (arq_boleto.name, r['id']))
+                                st.rerun()
+                            else:
+                                st.error("Por favor, anexe o arquivo da cobrança.")
+                                
+                    elif r['status'] == "Aguardando Pagamento":
+                        st.warning("Cobrança enviada. Aguardando o morador anexar o comprovante.")
+                        
+                    elif r['status'] == "Em Análise":
+                        st.success("O morador enviou o comprovante de pagamento!")
+                        cam_comp = os.path.join("uploads", str(r.get('comprovante', '')))
+                        if os.path.exists(cam_comp) and r.get('comprovante'):
+                            with open(cam_comp, "rb") as f:
+                                st.download_button("📄 Baixar Comprovante", data=f, file_name=r['comprovante'], key=f"dl_comp_{r['id']}")
+                        
+                        col1, col2 = st.columns(2)
+                        if col1.button("✅ Aprovar Reserva", key=f"apr_{r['id']}"):
+                            executar_sql("UPDATE reservas SET status='Aprovada' WHERE id=?", (r['id'],)); st.rerun()
+                        if col2.button("❌ Reprovar / Cancelar", key=f"rep_{r['id']}"):
+                            executar_sql("UPDATE reservas SET status='Reprovada' WHERE id=?", (r['id'],)); st.rerun()
             st.divider()
-            st.subheader("Histórico")
+            
+            st.subheader("Histórico Completo")
             for r in reservas_gerais:
                 st.write(f"**{r['data_reserva']}** | {r['nome']} (Casa {r['casa']}) | Status: {r['status']}")
 
-        else: 
+        else: # Morador
             st.subheader("Minhas Solicitações")
             minhas_reservas = buscar_dados("SELECT * FROM reservas WHERE casa=? ORDER BY id DESC", (user['casa'],))
             if not minhas_reservas: st.write("Você não tem solicitações.")
-            for r in minhas_reservas:
-                if r['status'] == "Aprovada": st.success(f"📅 {r['data_reserva']} | APROVADA")
-                elif r['status'] == "Reprovada": st.error(f"📅 {r['data_reserva']} | REPROVADA")
-                else: st.warning(f"📅 {r['data_reserva']} | AGUARDANDO APROVAÇÃO")
             
-            st.divider()
+            for r in minhas_reservas:
+                with st.container():
+                    if r['status'] == "Aprovada":
+                        st.success(f"📅 {r['data_reserva']} | APROVADA - Churrasqueira liberada!")
+                    elif r['status'] == "Reprovada":
+                        st.error(f"📅 {r['data_reserva']} | REPROVADA - Cancelada pela administração.")
+                    elif r['status'] == "Aguardando Taxa":
+                        st.warning(f"📅 {r['data_reserva']} | Aguardando síndico gerar a cobrança.")
+                    elif r['status'] == "Em Análise":
+                        st.info(f"📅 {r['data_reserva']} | Comprovante enviado! Em análise pela administração.")
+                    elif r['status'] == "Aguardando Pagamento":
+                        st.error(f"📅 {r['data_reserva']} | PENDENTE DE PAGAMENTO")
+                        st.write("A administração enviou a cobrança para liberar sua reserva.")
+                        
+                        cam_bol = os.path.join("uploads", str(r.get('boleto', '')))
+                        if os.path.exists(cam_bol) and r.get('boleto'):
+                            with open(cam_bol, "rb") as f:
+                                st.download_button("📥 1. Baixar Boleto / Chave Pix", data=f, file_name=r['boleto'], key=f"dl_bol_{r['id']}")
+                        
+                        st.write("Após pagar, envie o comprovante abaixo:")
+                        arq_comp = st.file_uploader("2. Enviar Comprovante", key=f"up_comp_{r['id']}")
+                        if st.button("Confirmar Pagamento", key=f"btn_comp_{r['id']}"):
+                            if arq_comp:
+                                with open(os.path.join("uploads", arq_comp.name), "wb") as f: f.write(arq_comp.getbuffer())
+                                executar_sql("UPDATE reservas SET status='Em Análise', comprovante=? WHERE id=?", (arq_comp.name, r['id']))
+                                st.success("Comprovante enviado!"); st.rerun()
+                            else:
+                                st.error("Anexe o comprovante antes de confirmar.")
+                st.divider()
+
             st.subheader("Nova Solicitação")
             data_escolhida = st.date_input("Selecione a data no calendário:", value=None)
             
@@ -276,17 +373,18 @@ else:
                 data_str = data_escolhida.strftime("%d/%m/%Y")
                 status_data = None
                 for r in reservas_gerais:
-                    if r['data_reserva'] == data_str and r['status'] in ["Aguardando Aprovação", "Aprovada"]:
+                    if r['data_reserva'] == data_str and r['status'] in ["Aguardando Taxa", "Aguardando Pagamento", "Em Análise", "Aprovada"]:
                         status_data = r['status']
                         break 
                 
                 if status_data == "Aprovada": st.error("⚠️ Data já reservada.")
-                elif status_data == "Aguardando Aprovação": st.warning("⏳ Data em análise.")
+                elif status_data: st.warning("⏳ Data já está em processo de locação por outro morador.")
                 else:
                     st.info("✅ Data disponível!")
-                    if st.button("Confirmar Reserva"):
-                        executar_sql("INSERT INTO reservas (nome, casa, data_reserva, status) VALUES (?, ?, ?, ?)", (user['nome'], user['casa'], data_str, "Aguardando Aprovação"))
-                        st.success("Enviado!"); st.rerun()
+                    if st.button("Solicitar Data"):
+                        # Inicia no passo 1 da transação
+                        executar_sql("INSERT INTO reservas (nome, casa, data_reserva, status) VALUES (?, ?, ?, ?)", (user['nome'], user['casa'], data_str, "Aguardando Taxa"))
+                        st.success("Enviado! Aguarde a liberação da cobrança."); st.rerun()
 
     # --- ASSEMBLEIAS ---
     elif pagina == "Assembleias":
@@ -390,10 +488,7 @@ else:
             st.info("Nenhuma conversa registrada.")
             
         for ch in chamados:
-            # Puxa as respostas para saber quem mandou a última e exibir no chat
             respostas = buscar_dados("SELECT * FROM respostas WHERE chamado_id=? ORDER BY id ASC", (ch['id'],))
-            
-            # Lógica inteligente para saber se tem mensagem nova para o usuário atual
             alerta_nova = ""
             if respostas and ch['status'] == "Aberto":
                 ultima_msg = respostas[-1]
@@ -406,24 +501,20 @@ else:
             
             with st.expander(f"{alerta_nova}{status_icone} {ch['assunto']} - Casa {ch['casa']}"):
                 
-                # Renderiza o botão de atualizar discreto no topo da conversa
                 if st.button("🔄 Atualizar Chat", key=f"upd_{ch['id']}"):
                     st.rerun()
                 st.divider()
 
-                # Renderiza as mensagens
                 for r in respostas:
                     if r['remetente'] == "Síndico" or r['remetente'] == "Administrador":
                         st.info(f"👔 **Administração** ({r['data_envio']}):\n\n{r['texto']}")
                     else:
                         st.success(f"👤 **{r['remetente']}** ({r['data_envio']}):\n\n{r['texto']}")
                 
-                # Resposta dentro de um form
                 if ch['status'] == "Aberto":
                     st.divider()
                     with st.form(key=f"form_resp_{ch['id']}", clear_on_submit=True):
                         texto_resposta = st.text_input("Escreva sua resposta...")
-                        
                         col_btn1, col_btn2 = st.columns(2)
                         enviou = col_btn1.form_submit_button("Enviar Resposta")
                         
