@@ -51,18 +51,21 @@ aplicar_estilo_app()
 # 1. CONEXÃO COM BANCO DE DADOS EM NUVEM (SUPABASE)
 # ==========================================
 def get_conexao():
-    # CORREÇÃO: Conecta lendo os parâmetros individuais do bloco [supabase] e ativa o SSL obrigatório
-    return psycopg2.connect(
-        host=st.secrets["supabase"]["host"],
-        port=st.secrets["supabase"]["port"],
-        database=st.secrets["supabase"]["database"],
-        user=st.secrets["supabase"]["user"],
-        password=st.secrets["supabase"]["password"],
-        sslmode="require"
-    )
+    try:
+        return psycopg2.connect(
+            host=st.secrets["supabase"]["host"],
+            port=st.secrets["supabase"]["port"],
+            database=st.secrets["supabase"]["database"],
+            user=st.secrets["supabase"]["user"],
+            password=st.secrets["supabase"]["password"],
+            sslmode="require",
+            connect_timeout=10
+        )
+    except Exception as e:
+        st.error("🔺 Erro ao conectar ao banco de dados na nuvem. Verifique os Secrets do Streamlit.")
+        st.stop()
 
 def executar_sql(query, parametros=()):
-    # Adapta os placeholders do SQLite (?) para o PostgreSQL (%s)
     query = query.replace('?', '%s')
     conn = get_conexao()
     cursor = conn.cursor()
