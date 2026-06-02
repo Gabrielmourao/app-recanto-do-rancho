@@ -51,11 +51,18 @@ aplicar_estilo_app()
 # 1. CONEXÃO COM BANCO DE DADOS EM NUVEM (SUPABASE)
 # ==========================================
 def get_conexao():
-    # Puxa a URI de conexão configurada nos Secrets do Streamlit
-    return psycopg2.connect(st.secrets["DB_URL"])
+    # CORREÇÃO: Conecta lendo os parâmetros individuais do bloco [supabase] e ativa o SSL obrigatório
+    return psycopg2.connect(
+        host=st.secrets["supabase"]["host"],
+        port=st.secrets["supabase"]["port"],
+        database=st.secrets["supabase"]["database"],
+        user=st.secrets["supabase"]["user"],
+        password=st.secrets["supabase"]["password"],
+        sslmode="require"
+    )
 
 def executar_sql(query, parametros=()):
-    # Adapta de forma mágica os placeholders do SQLite (?) para o PostgreSQL (%s)
+    # Adapta os placeholders do SQLite (?) para o PostgreSQL (%s)
     query = query.replace('?', '%s')
     conn = get_conexao()
     cursor = conn.cursor()
@@ -67,7 +74,6 @@ def executar_sql(query, parametros=()):
 def buscar_dados(query, parametros=()):
     query = query.replace('?', '%s')
     conn = get_conexao()
-    # Retorna as linhas do banco como dicionários estruturados estruturados automaticamente
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     cursor.execute(query, parametros)
     resultado = cursor.fetchall()
@@ -277,7 +283,7 @@ else:
             st.write(aviso['mensagem'])
             st.divider()
 
-    # --- RESERVAS (FLUXO EM NUVEM) ---
+    # --- RESERVAS ---
     elif pagina == "Reservas":
         st.title("📅 Reservas da Churrasqueira")
         reservas_gerais = buscar_dados("SELECT * FROM reservas ORDER BY id DESC")
