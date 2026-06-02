@@ -62,7 +62,8 @@ def get_conexao():
             connect_timeout=10
         )
     except Exception as e:
-        st.error("🔺 Erro ao conectar ao banco de dados na nuvem. Verifique os Secrets do Streamlit.")
+        # Mostra o erro exato que o Supabase está retornando
+        st.error(f"🔺 ERRO DO SUPABASE: {e}")
         st.stop()
 
 def executar_sql(query, parametros=()):
