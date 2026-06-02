@@ -1,7 +1,7 @@
 import streamlit as st
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import datetime
-import os
 
 # Configuração da página - Inicia com a aba lateral fechada
 st.set_page_config(page_title="Recanto do Rancho", layout="wide", initial_sidebar_state="collapsed")
@@ -34,10 +34,9 @@ def aplicar_estilo_app():
         }
         div[data-testid="stExpander"] {
             border-radius: 12px !important;
-            border: 1px solid rgba(200, 200, 200, 0.2); /* Borda suave que funciona no claro e escuro */
+            border: 1px solid rgba(200, 200, 200, 0.2);
             box-shadow: 0 2px 8px rgba(0,0,0,0.05);
             margin-bottom: 10px;
-            /* Fundo branco fixo removido para não bugar o Modo Escuro */
         }
         div[data-testid="stAlert"] {
             border-radius: 10px;
@@ -49,47 +48,44 @@ def aplicar_estilo_app():
 aplicar_estilo_app()
 
 # ==========================================
-# 1. BANCO DE DADOS E CONFIGURAÇÕES
+# 1. CONEXÃO COM BANCO DE DADOS EM NUVEM (SUPABASE)
 # ==========================================
-if not os.path.exists("uploads"):
-    os.makedirs("uploads")
-
 def get_conexao():
-    return sqlite3.connect('condominio.db', check_same_thread=False)
+    # Puxa a URI de conexão configurada nos Secrets do Streamlit
+    return psycopg2.connect(st.secrets["DB_URL"])
 
 def executar_sql(query, parametros=()):
+    # Adapta de forma mágica os placeholders do SQLite (?) para o PostgreSQL (%s)
+    query = query.replace('?', '%s')
     conn = get_conexao()
     cursor = conn.cursor()
     cursor.execute(query, parametros)
     conn.commit()
+    cursor.close()
     conn.close()
 
 def buscar_dados(query, parametros=()):
+    query = query.replace('?', '%s')
     conn = get_conexao()
-    cursor = conn.cursor()
+    # Retorna as linhas do banco como dicionários estruturados estruturados automaticamente
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
     cursor.execute(query, parametros)
-    colunas = [desc[0] for desc in cursor.description]
-    resultado = [dict(zip(colunas, linha)) for linha in cursor.fetchall()]
+    resultado = cursor.fetchall()
+    resultado_normalizado = [dict(linha) for linha in resultado]
+    cursor.close()
     conn.close()
-    return resultado
+    return resultado_normalizado
 
 def inicializar_banco():
-    executar_sql('''CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, email TEXT UNIQUE NOT NULL, casa TEXT NOT NULL, senha TEXT NOT NULL, perfil TEXT NOT NULL)''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS comunicados (id INTEGER PRIMARY KEY AUTOINCREMENT, titulo TEXT NOT NULL, mensagem TEXT NOT NULL, data_publicacao TEXT NOT NULL)''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS assembleias (id INTEGER PRIMARY KEY AUTOINCREMENT, data_completa TEXT NOT NULL, mes_ano TEXT NOT NULL, local TEXT NOT NULL, pauta TEXT NOT NULL, status TEXT DEFAULT 'Agendada')''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS atas (id INTEGER PRIMARY KEY AUTOINCREMENT, mes_ano TEXT NOT NULL, data_completa TEXT NOT NULL, pauta TEXT NOT NULL, nome_arquivo TEXT NOT NULL)''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS reservas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, casa TEXT NOT NULL, data_reserva TEXT NOT NULL, status TEXT NOT NULL)''')
-    
-    # ATUALIZAÇÃO SEGURA DO BANCO DE DADOS
-    try: executar_sql("ALTER TABLE reservas ADD COLUMN boleto TEXT")
-    except: pass
-    try: executar_sql("ALTER TABLE reservas ADD COLUMN comprovante TEXT")
-    except: pass
-
-    executar_sql('''CREATE TABLE IF NOT EXISTS balancetes (id INTEGER PRIMARY KEY AUTOINCREMENT, titulo TEXT NOT NULL, nome_arquivo TEXT NOT NULL)''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS multas (id INTEGER PRIMARY KEY AUTOINCREMENT, casa TEXT NOT NULL, motivo TEXT NOT NULL, data_aplicacao TEXT NOT NULL, nome_arquivo TEXT NOT NULL)''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS chamados (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, casa TEXT NOT NULL, assunto TEXT NOT NULL, status TEXT DEFAULT 'Aberto', data_criacao TEXT NOT NULL)''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS respostas (id INTEGER PRIMARY KEY AUTOINCREMENT, chamado_id INTEGER NOT NULL, remetente TEXT NOT NULL, texto TEXT NOT NULL, data_envio TEXT NOT NULL)''')
+    executar_sql('''CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, nome TEXT NOT NULL, email TEXT UNIQUE NOT NULL, casa TEXT NOT NULL, senha TEXT NOT NULL, perfil TEXT NOT NULL)''')
+    executar_sql('''CREATE TABLE IF NOT EXISTS comunicados (id SERIAL PRIMARY KEY, titulo TEXT NOT NULL, mensagem TEXT NOT NULL, data_publicacao TEXT NOT NULL)''')
+    executar_sql('''CREATE TABLE IF NOT EXISTS assembleias (id SERIAL PRIMARY KEY, data_completa TEXT NOT NULL, mes_ano TEXT NOT NULL, local TEXT NOT NULL, pauta TEXT NOT NULL, status TEXT DEFAULT 'Agendada')''')
+    executar_sql('''CREATE TABLE IF NOT EXISTS atas (id SERIAL PRIMARY KEY, mes_ano TEXT NOT NULL, data_completa TEXT NOT NULL, pauta TEXT NOT NULL, nome_arquivo TEXT NOT NULL, arquivo_dados BYTEA)''')
+    executar_sql('''CREATE TABLE IF NOT EXISTS reservas (id SERIAL PRIMARY KEY, nome TEXT NOT NULL, casa TEXT NOT NULL, data_reserva TEXT NOT NULL, status TEXT NOT NULL, boleto_nome TEXT, boleto_dados BYTEA, comprovante_nome TEXT, comprovante_dados BYTEA)''')
+    executar_sql('''CREATE TABLE IF NOT EXISTS balancetes (id SERIAL PRIMARY KEY, titulo TEXT NOT NULL, nome_arquivo TEXT NOT NULL, arquivo_dados BYTEA)''')
+    executar_sql('''CREATE TABLE IF NOT EXISTS multas (id SERIAL PRIMARY KEY, casa TEXT NOT NULL, motivo TEXT NOT NULL, data_aplicacao TEXT NOT NULL, nome_arquivo TEXT NOT NULL, arquivo_dados BYTEA)''')
+    executar_sql('''CREATE TABLE IF NOT EXISTS chamados (id SERIAL PRIMARY KEY, nome TEXT NOT NULL, casa TEXT NOT NULL, assunto TEXT NOT NULL, status TEXT DEFAULT 'Aberto', data_criacao TEXT NOT NULL)''')
+    executar_sql('''CREATE TABLE IF NOT EXISTS respostas (id SERIAL PRIMARY KEY, chamado_id INTEGER NOT NULL, remetente TEXT NOT NULL, texto TEXT NOT NULL, data_envio TEXT NOT NULL)''')
     
     sindico_existe = buscar_dados("SELECT * FROM usuarios WHERE perfil='Síndico'")
     if not sindico_existe:
@@ -101,10 +97,11 @@ inicializar_banco()
 def criar_novo_chamado(nome, casa, assunto, texto, data_envio):
     conn = get_conexao()
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO chamados (nome, casa, assunto, data_criacao) VALUES (?, ?, ?, ?)", (nome, casa, assunto, data_envio))
-    novo_id = cursor.lastrowid 
-    cursor.execute("INSERT INTO respostas (chamado_id, remetente, texto, data_envio) VALUES (?, ?, ?, ?)", (novo_id, nome, texto, data_envio))
+    cursor.execute("INSERT INTO chamados (nome, casa, assunto, data_criacao) VALUES (%s, %s, %s, %s) RETURNING id", (nome, casa, assunto, data_envio))
+    novo_id = cursor.fetchone()[0]
+    cursor.execute("INSERT INTO respostas (chamado_id, remetente, texto, data_envio) VALUES (%s, %s, %s, %s)", (novo_id, nome, texto, data_envio))
     conn.commit()
+    cursor.close()
     conn.close()
 
 MESES_PT = {
@@ -133,7 +130,6 @@ if st.session_state['usuario_logado'] is None:
     
     opcoes_acesso = ["Login", "Cadastrar Novo Morador"]
     idx_acesso = opcoes_acesso.index(st.session_state['tela_acesso'])
-    
     escolha_tela = st.radio("Selecione uma opção:", opcoes_acesso, horizontal=True, index=idx_acesso)
     
     if escolha_tela != st.session_state['tela_acesso']:
@@ -180,7 +176,6 @@ if st.session_state['usuario_logado'] is None:
 # ==========================================
 else:
     user = st.session_state['usuario_logado'] 
-    
     partes_nome = user['nome'].split()
     iniciais = "".join([n[0] for n in partes_nome[:2]]).upper()
     primeiro_nome = partes_nome[0].upper()
@@ -214,7 +209,6 @@ else:
 
     pagina = st.session_state['pagina_atual']
 
-    # --- BOTÃO HOME GLOBAL ---
     if pagina != "Página Inicial":
         if st.button("🏠 Voltar para a Página Inicial", use_container_width=True):
             navegar_para("Página Inicial")
@@ -283,40 +277,34 @@ else:
             st.write(aviso['mensagem'])
             st.divider()
 
-    # --- RESERVAS (FLUXO DE PAGAMENTO) ---
+    # --- RESERVAS (FLUXO EM NUVEM) ---
     elif pagina == "Reservas":
         st.title("📅 Reservas da Churrasqueira")
         reservas_gerais = buscar_dados("SELECT * FROM reservas ORDER BY id DESC")
         
         if user['perfil'] == "Síndico":
             st.subheader("Painel de Solicitações e Pagamentos")
-            
             pendentes = [r for r in reservas_gerais if r['status'] in ["Aguardando Taxa", "Em Análise", "Aguardando Pagamento"]]
-            if not pendentes: st.write("Nenhuma ação pendente no momento.")
             
+            if not pendentes: st.write("Nenhuma ação pendente no momento.")
             for r in pendentes:
                 with st.expander(f"📌 {r['data_reserva']} - {r['nome']} (Casa {r['casa']}) | Status: {r['status']}", expanded=True):
-                    
                     if r['status'] == "Aguardando Taxa":
                         st.info("O morador solicitou esta data. Envie o boleto/chave Pix para ele pagar.")
                         arq_boleto = st.file_uploader("Upload do Boleto/Pix (PDF ou Imagem)", key=f"up_bol_{r['id']}")
                         if st.button("Enviar Cobrança", key=f"btn_bol_{r['id']}"):
                             if arq_boleto:
-                                with open(os.path.join("uploads", arq_boleto.name), "wb") as f: f.write(arq_boleto.getbuffer())
-                                executar_sql("UPDATE reservas SET status='Aguardando Pagamento', boleto=? WHERE id=?", (arq_boleto.name, r['id']))
+                                executar_sql("UPDATE reservas SET status='Aguardando Pagamento', boleto_nome=?, boleto_dados=? WHERE id=?", (arq_boleto.name, arq_boleto.getvalue(), r['id']))
                                 st.rerun()
-                            else:
-                                st.error("Por favor, anexe o arquivo da cobrança.")
+                            else: st.error("Por favor, anexe o arquivo da cobrança.")
                                 
                     elif r['status'] == "Aguardando Pagamento":
                         st.warning("Cobrança enviada. Aguardando o morador anexar o comprovante.")
                         
                     elif r['status'] == "Em Análise":
                         st.success("O morador enviou o comprovante de pagamento!")
-                        cam_comp = os.path.join("uploads", str(r.get('comprovante', '')))
-                        if os.path.exists(cam_comp) and r.get('comprovante'):
-                            with open(cam_comp, "rb") as f:
-                                st.download_button("📄 Baixar Comprovante", data=f, file_name=r['comprovante'], key=f"dl_comp_{r['id']}")
+                        if r.get('comprovante_dados'):
+                            st.download_button("📄 Baixar Comprovante", data=bytes(r['comprovante_dados']), file_name=r['comprovante_nome'], key=f"dl_comp_{r['id']}")
                         
                         col1, col2 = st.columns(2)
                         if col1.button("✅ Aprovar Reserva", key=f"apr_{r['id']}"):
@@ -324,7 +312,6 @@ else:
                         if col2.button("❌ Reprovar / Cancelar", key=f"rep_{r['id']}"):
                             executar_sql("UPDATE reservas SET status='Reprovada' WHERE id=?", (r['id'],)); st.rerun()
             st.divider()
-            
             st.subheader("Histórico Completo")
             for r in reservas_gerais:
                 st.write(f"**{r['data_reserva']}** | {r['nome']} (Casa {r['casa']}) | Status: {r['status']}")
@@ -336,37 +323,26 @@ else:
             
             for r in minhas_reservas:
                 with st.container():
-                    if r['status'] == "Aprovada":
-                        st.success(f"📅 {r['data_reserva']} | APROVADA - Churrasqueira liberada!")
-                    elif r['status'] == "Reprovada":
-                        st.error(f"📅 {r['data_reserva']} | REPROVADA - Cancelada pela administração.")
-                    elif r['status'] == "Aguardando Taxa":
-                        st.warning(f"📅 {r['data_reserva']} | Aguardando síndico gerar a cobrança.")
-                    elif r['status'] == "Em Análise":
-                        st.info(f"📅 {r['data_reserva']} | Comprovante enviado! Em análise pela administração.")
+                    if r['status'] == "Aprovada": st.success(f"📅 {r['data_reserva']} | APROVADA - Churrasqueira liberada!")
+                    elif r['status'] == "Reprovada": st.error(f"📅 {r['data_reserva']} | REPROVADA - Cancelada pela administração.")
+                    elif r['status'] == "Aguardando Taxa": st.warning(f"📅 {r['data_reserva']} | Aguardando síndico gerar a cobrança.")
+                    elif r['status'] == "Em Análise": st.info(f"📅 {r['data_reserva']} | Comprovante enviado! Em análise pela administração.")
                     elif r['status'] == "Aguardando Pagamento":
                         st.error(f"📅 {r['data_reserva']} | PENDENTE DE PAGAMENTO")
-                        st.write("A administração enviou a cobrança para liberar sua reserva.")
-                        
-                        cam_bol = os.path.join("uploads", str(r.get('boleto', '')))
-                        if os.path.exists(cam_bol) and r.get('boleto'):
-                            with open(cam_bol, "rb") as f:
-                                st.download_button("📥 1. Baixar Boleto / Chave Pix", data=f, file_name=r['boleto'], key=f"dl_bol_{r['id']}")
+                        if r.get('boleto_dados'):
+                            st.download_button("📥 1. Baixar Boleto / Chave Pix", data=bytes(r['boleto_dados']), file_name=r['boleto_nome'], key=f"dl_bol_{r['id']}")
                         
                         st.write("Após pagar, envie o comprovante abaixo:")
                         arq_comp = st.file_uploader("2. Enviar Comprovante", key=f"up_comp_{r['id']}")
                         if st.button("Confirmar Pagamento", key=f"btn_comp_{r['id']}"):
                             if arq_comp:
-                                with open(os.path.join("uploads", arq_comp.name), "wb") as f: f.write(arq_comp.getbuffer())
-                                executar_sql("UPDATE reservas SET status='Em Análise', comprovante=? WHERE id=?", (arq_comp.name, r['id']))
+                                executar_sql("UPDATE reservas SET status='Em Análise', comprovante_nome=?, comprovante_dados=? WHERE id=?", (arq_comp.name, arq_comp.getvalue(), r['id']))
                                 st.success("Comprovante enviado!"); st.rerun()
-                            else:
-                                st.error("Anexe o comprovante antes de confirmar.")
+                            else: st.error("Anexe o comprovante antes de confirmar.")
                 st.divider()
 
             st.subheader("Nova Solicitação")
             data_escolhida = st.date_input("Selecione a data no calendário:", value=None)
-            
             if data_escolhida:
                 data_str = data_escolhida.strftime("%d/%m/%Y")
                 status_data = None
@@ -414,8 +390,7 @@ else:
                         arq_ata = st.file_uploader("PDF", type=["pdf"])
                         if st.form_submit_button("Publicar") and arq_ata:
                             ass = opcoes[escolha]
-                            with open(os.path.join("uploads", arq_ata.name), "wb") as f: f.write(arq_ata.getbuffer())
-                            executar_sql("INSERT INTO atas (mes_ano, data_completa, pauta, nome_arquivo) VALUES (?, ?, ?, ?)", (ass['mes_ano'], ass['data_completa'], ass['pauta'], arq_ata.name))
+                            executar_sql("INSERT INTO atas (mes_ano, data_completa, pauta, nome_arquivo, arquivo_dados) VALUES (?, ?, ?, ?, ?)", (ass['mes_ano'], ass['data_completa'], ass['pauta'], arq_ata.name, arq_ata.getvalue()))
                             executar_sql("UPDATE assembleias SET status='Concluida' WHERE id=?", (ass['id'],))
                             st.rerun()
             st.divider()
@@ -425,9 +400,8 @@ else:
             with st.expander(f"📌 {ata['mes_ano']}"):
                 st.write(f"**Data:** {ata['data_completa']} | **Pauta:** {ata['pauta']}")
                 col1, col2 = st.columns(2)
-                cam = os.path.join("uploads", ata['nome_arquivo'])
-                if os.path.exists(cam):
-                    with open(cam, "rb") as f: col1.download_button("📄 Baixar", data=f, file_name=ata['nome_arquivo'], mime="application/pdf", key=f"d_ata_{ata['id']}")
+                if ata.get('arquivo_dados'):
+                    col1.download_button("📄 Baixar", data=bytes(ata['arquivo_dados']), file_name=ata['nome_arquivo'], mime="application/pdf", key=f"d_ata_{ata['id']}")
                 if user['perfil'] == "Síndico" and col2.button("🗑️ Excluir", key=f"x_ata_{ata['id']}"):
                     executar_sql("DELETE FROM atas WHERE id=?", (ata['id'],)); st.rerun()
 
@@ -445,16 +419,14 @@ else:
                     arq_bal = st.file_uploader("PDF", type=["pdf"])
                     if st.form_submit_button("Salvar") and arq_bal:
                         titulo = f"Balancete {mes_sel}/{ano_sel}"
-                        with open(os.path.join("uploads", arq_bal.name), "wb") as f: f.write(arq_bal.getbuffer())
-                        executar_sql("INSERT INTO balancetes (titulo, nome_arquivo) VALUES (?, ?)", (titulo, arq_bal.name)); st.rerun()
+                        executar_sql("INSERT INTO balancetes (titulo, nome_arquivo, arquivo_dados) VALUES (?, ?, ?)", (titulo, arq_bal.name, arq_bal.getvalue())); st.rerun()
             st.divider()
             
         for bal in balancetes:
             st.write(f"**{bal['titulo']}**")
             col1, col2 = st.columns(2)
-            cam = os.path.join("uploads", bal['nome_arquivo'])
-            if os.path.exists(cam):
-                with open(cam, "rb") as f: col1.download_button("📄 Baixar", data=f, file_name=bal['nome_arquivo'], mime="application/pdf", key=f"d_bal_{bal['id']}")
+            if bal.get('arquivo_dados'):
+                col1.download_button("📄 Baixar", data=bytes(bal['arquivo_dados']), file_name=bal['nome_arquivo'], mime="application/pdf", key=f"d_bal_{bal['id']}")
             if user['perfil'] == "Síndico" and col2.button("🗑️ Excluir", key=f"x_bal_{bal['id']}"):
                 executar_sql("DELETE FROM balancetes WHERE id=?", (bal['id'],)); st.rerun()
             st.divider()
@@ -462,14 +434,13 @@ else:
     # --- COMUNICAÇÃO (BATE-PAPO) ---
     elif pagina == "Falar com o Síndico" or pagina == "Mensagens":
         st.title("💬 Central de Atendimento")
+        if st.button("🔄 Atualizar Chat"): st.rerun()
+        st.divider()
         
         if user['perfil'] == "Síndico":
-            st.write("Caixa de entrada da Administração.")
             chamados = buscar_dados("SELECT * FROM chamados ORDER BY id DESC")
         else:
-            st.write("Converse com a administração.")
             chamados = buscar_dados("SELECT * FROM chamados WHERE casa=? ORDER BY id DESC", (user['casa'],))
-            
             with st.expander("➕ Iniciar Nova Conversa"):
                 with st.form("form_novo_chamado", clear_on_submit=True):
                     assunto = st.text_input("Assunto")
@@ -480,53 +451,33 @@ else:
                             criar_novo_chamado(user['nome'], user['casa'], assunto, texto, hoje)
                             st.success("Enviado!"); st.rerun()
 
-        st.subheader("Minhas Conversas")
-        if not chamados:
-            st.info("Nenhuma conversa registrada.")
-            
         for ch in chamados:
             respostas = buscar_dados("SELECT * FROM respostas WHERE chamado_id=? ORDER BY id ASC", (ch['id'],))
             alerta_nova = ""
             if respostas and ch['status'] == "Aberto":
                 ultima_msg = respostas[-1]
-                if user['perfil'] == "Síndico" and ultima_msg['remetente'] != "Administrador" and ultima_msg['remetente'] != "Síndico":
-                    alerta_nova = "🔴 [NOVA] "
-                elif user['perfil'] == "Morador" and (ultima_msg['remetente'] == "Administrador" or ultima_msg['remetente'] == "Síndico"):
-                    alerta_nova = "🔴 [NOVA] "
+                if user['perfil'] == "Síndico" and ultima_msg['remetente'] not in ["Administrador", "Síndico"]: alerta_nova = "🔴 [NOVA] "
+                elif user['perfil'] == "Morador" and ultima_msg['remetente'] in ["Administrador", "Síndico"]: alerta_nova = "🔴 [NOVA] "
                     
             status_icone = "🟢" if ch['status'] == "Aberto" else "⚪"
-            
             with st.expander(f"{alerta_nova}{status_icone} {ch['assunto']} - Casa {ch['casa']}"):
-                
-                if st.button("🔄 Atualizar Chat", key=f"upd_{ch['id']}"):
-                    st.rerun()
-                st.divider()
-
                 for r in respostas:
-                    if r['remetente'] == "Síndico" or r['remetente'] == "Administrador":
-                        st.info(f"👔 **Administração** ({r['data_envio']}):\n\n{r['texto']}")
-                    else:
-                        st.success(f"👤 **{r['remetente']}** ({r['data_envio']}):\n\n{r['texto']}")
+                    if r['remetente'] in ["Síndico", "Administrador"]: st.info(f"👔 **Administração** ({r['data_envio']}):\n\n{r['texto']}")
+                    else: st.success(f"👤 **{r['remetente']}** ({r['data_envio']}):\n\n{r['texto']}")
                 
                 if ch['status'] == "Aberto":
                     st.divider()
                     with st.form(key=f"form_resp_{ch['id']}", clear_on_submit=True):
                         texto_resposta = st.text_input("Escreva sua resposta...")
                         col_btn1, col_btn2 = st.columns(2)
-                        enviou = col_btn1.form_submit_button("Enviar Resposta")
-                        
-                        if enviou and texto_resposta:
+                        if col_btn1.form_submit_button("Enviar Resposta") and texto_resposta:
                             hoje = datetime.datetime.now().strftime("%d/%m/%Y às %H:%M")
-                            executar_sql("INSERT INTO respostas (chamado_id, remetente, texto, data_envio) VALUES (?, ?, ?, ?)", 
-                                         (ch['id'], user['nome'], texto_resposta, hoje))
+                            executar_sql("INSERT INTO respostas (chamado_id, remetente, texto, data_envio) VALUES (?, ?, ?, ?)", (ch['id'], user['nome'], texto_resposta, hoje))
                             st.rerun()
                             
-                    if user['perfil'] == "Síndico":
-                        if st.button("🚫 Encerrar Conversa", key=f"btn_encer_{ch['id']}"):
-                            executar_sql("UPDATE chamados SET status='Encerrado' WHERE id=?", (ch['id'],))
-                            st.rerun()
-                else:
-                    st.error("Esta conversa foi encerrada pelo Síndico.")
+                    if user['perfil'] == "Síndico" and st.button("🚫 Encerrar Conversa", key=f"btn_encer_{ch['id']}"):
+                        executar_sql("UPDATE chamados SET status='Encerrado' WHERE id=?", (ch['id'],)); st.rerun()
+                else: st.error("Esta conversa foi encerrada pelo Síndico.")
 
     # --- MORADORES ---
     elif pagina == "Moradores":
@@ -552,26 +503,22 @@ else:
                     if st.form_submit_button("Aplicar") and infrator and motivo and arq_multa:
                         num_casa = infrator.split(" - ")[0].replace("Casa ", "")
                         hoje = datetime.datetime.now().strftime("%d/%m/%Y")
-                        with open(os.path.join("uploads", arq_multa.name), "wb") as f: f.write(arq_multa.getbuffer())
-                        executar_sql("INSERT INTO multas (casa, motivo, data_aplicacao, nome_arquivo) VALUES (?, ?, ?, ?)", (num_casa, motivo, hoje, arq_multa.name)); st.rerun()
+                        executar_sql("INSERT INTO multas (casa, motivo, data_aplicacao, nome_arquivo, arquivo_dados) VALUES (?, ?, ?, ?, ?)", (num_casa, motivo, hoje, arq_multa.name, arq_multa.getvalue())); st.rerun()
             
             st.subheader("Histórico")
             for m in buscar_dados("SELECT * FROM multas ORDER BY id DESC"):
                 st.write(f"🏠 **Casa {m['casa']}** | {m['data_aplicacao']} - {m['motivo']}")
                 col1, col2 = st.columns(2)
-                cam = os.path.join("uploads", m['nome_arquivo'])
-                if os.path.exists(cam):
-                    with open(cam, "rb") as f: col1.download_button("📄 Baixar", data=f, file_name=m['nome_arquivo'], mime="application/pdf", key=f"d_multa_{m['id']}")
+                if m.get('arquivo_dados'):
+                    col1.download_button("📄 Baixar", data=bytes(m['arquivo_dados']), file_name=m['nome_arquivo'], mime="application/pdf", key=f"d_multa_{m['id']}")
                 if col2.button("🗑️ Cancelar", key=f"x_multa_{m['id']}"):
                     executar_sql("DELETE FROM multas WHERE id=?", (m['id'],)); st.rerun()
                 st.divider()
-
         else:
             minhas_multas = buscar_dados("SELECT * FROM multas WHERE casa=? ORDER BY id DESC", (user['casa'],))
             if not minhas_multas: st.success("🎉 Nenhuma multa para a sua casa.")
             for m in minhas_multas:
                 st.error(f"⚠️ {m['motivo']}")
-                cam = os.path.join("uploads", m['nome_arquivo'])
-                if os.path.exists(cam):
-                    with open(cam, "rb") as f: st.download_button("📄 Baixar Boleto", data=f, file_name=m['nome_arquivo'], mime="application/pdf", key=f"d_minha_{m['id']}")
+                if m.get('arquivo_dados'):
+                    st.download_button("📄 Baixar Boleto", data=bytes(m['arquivo_dados']), file_name=m['nome_arquivo'], mime="application/pdf", key=f"d_minha_{m['id']}")
                 st.divider()
