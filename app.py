@@ -62,7 +62,6 @@ def get_conexao():
             connect_timeout=10
         )
     except Exception as e:
-        # Mostra o erro exato que o Supabase está retornando
         st.error(f"🔺 ERRO DO SUPABASE: {e}")
         st.stop()
 
@@ -102,7 +101,10 @@ def inicializar_banco():
         executar_sql("INSERT INTO usuarios (nome, email, casa, senha, perfil) VALUES (?, ?, ?, ?, ?)",
                      ("Administrador", "sindico@recanto.com", "Sede", "admin123", "Síndico"))
 
-inicializar_banco()
+# OTIMIZAÇÃO: Só roda a verificação das tabelas 1 vez por acesso, deixando o app super rápido!
+if 'banco_inicializado' not in st.session_state:
+    inicializar_banco()
+    st.session_state['banco_inicializado'] = True
 
 def criar_novo_chamado(nome, casa, assunto, texto, data_envio):
     conn = get_conexao()
@@ -140,11 +142,10 @@ if st.session_state['usuario_logado'] is None:
     
     opcoes_acesso = ["Login", "Cadastrar Novo Morador"]
     idx_acesso = opcoes_acesso.index(st.session_state['tela_acesso'])
-    escolha_tela = st.radio("Selecione uma opção:", opcoes_acesso, horizontal=True, index=idx_acesso)
     
-    if escolha_tela != st.session_state['tela_acesso']:
-        st.session_state['tela_acesso'] = escolha_tela
-        st.rerun()
+    # OTIMIZAÇÃO: A tela muda na mesma hora, sem precisar de recarregamento duplo
+    escolha_tela = st.radio("Selecione uma opção:", opcoes_acesso, horizontal=True, index=idx_acesso)
+    st.session_state['tela_acesso'] = escolha_tela
     
     if st.session_state['tela_acesso'] == "Login":
         st.subheader("Acesse sua conta")
@@ -206,11 +207,9 @@ else:
     """, unsafe_allow_html=True)
     st.sidebar.divider()
     
+    # OTIMIZAÇÃO: Menu lateral instantâneo
     menu = st.sidebar.radio("Navegação:", opcoes_menu, index=opcoes_menu.index(st.session_state['pagina_atual']), label_visibility="collapsed")
-    
-    if menu != st.session_state['pagina_atual']:
-        st.session_state['pagina_atual'] = menu
-        st.rerun()
+    st.session_state['pagina_atual'] = menu
         
     st.sidebar.divider()
     if st.sidebar.button("Sair (Logout)", use_container_width=True):
