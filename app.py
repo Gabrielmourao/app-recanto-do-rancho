@@ -85,26 +85,42 @@ def buscar_dados(query, parametros=()):
     conn.close()
     return resultado_normalizado
 
+# 🚀 OTIMIZAÇÃO DE VELOCIDADE MAXIMA: 
+# O cache memoriza a operação para que ela NUNCA se repita enquanto o app estiver no ar
+@st.cache_resource
 def inicializar_banco():
-    executar_sql('''CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, nome TEXT NOT NULL, email TEXT UNIQUE NOT NULL, casa TEXT NOT NULL, senha TEXT NOT NULL, perfil TEXT NOT NULL)''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS comunicados (id SERIAL PRIMARY KEY, titulo TEXT NOT NULL, mensagem TEXT NOT NULL, data_publicacao TEXT NOT NULL)''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS assembleias (id SERIAL PRIMARY KEY, data_completa TEXT NOT NULL, mes_ano TEXT NOT NULL, local TEXT NOT NULL, pauta TEXT NOT NULL, status TEXT DEFAULT 'Agendada')''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS atas (id SERIAL PRIMARY KEY, mes_ano TEXT NOT NULL, data_completa TEXT NOT NULL, pauta TEXT NOT NULL, nome_arquivo TEXT NOT NULL, arquivo_dados BYTEA)''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS reservas (id SERIAL PRIMARY KEY, nome TEXT NOT NULL, casa TEXT NOT NULL, data_reserva TEXT NOT NULL, status TEXT NOT NULL, boleto_nome TEXT, boleto_dados BYTEA, comprovante_nome TEXT, comprovante_dados BYTEA)''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS balancetes (id SERIAL PRIMARY KEY, titulo TEXT NOT NULL, nome_arquivo TEXT NOT NULL, arquivo_dados BYTEA)''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS multas (id SERIAL PRIMARY KEY, casa TEXT NOT NULL, motivo TEXT NOT NULL, data_aplicacao TEXT NOT NULL, nome_arquivo TEXT NOT NULL, arquivo_dados BYTEA)''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS chamados (id SERIAL PRIMARY KEY, nome TEXT NOT NULL, casa TEXT NOT NULL, assunto TEXT NOT NULL, status TEXT DEFAULT 'Aberto', data_criacao TEXT NOT NULL)''')
-    executar_sql('''CREATE TABLE IF NOT EXISTS respostas (id SERIAL PRIMARY KEY, chamado_id INTEGER NOT NULL, remetente TEXT NOT NULL, texto TEXT NOT NULL, data_envio TEXT NOT NULL)''')
-    
-    sindico_existe = buscar_dados("SELECT * FROM usuarios WHERE perfil='Síndico'")
-    if not sindico_existe:
-        executar_sql("INSERT INTO usuarios (nome, email, casa, senha, perfil) VALUES (?, ?, ?, ?, ?)",
-                     ("Administrador", "sindico@recanto.com", "Sede", "admin123", "Síndico"))
+    try:
+        conn = get_conexao()
+        cursor = conn.cursor()
+        
+        # Agrupamos todas as tabelas em um único pacote gigante de dados (1 única viagem ao banco!)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, nome TEXT NOT NULL, email TEXT UNIQUE NOT NULL, casa TEXT NOT NULL, senha TEXT NOT NULL, perfil TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS comunicados (id SERIAL PRIMARY KEY, titulo TEXT NOT NULL, mensagem TEXT NOT NULL, data_publicacao TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS assembleias (id SERIAL PRIMARY KEY, data_completa TEXT NOT NULL, mes_ano TEXT NOT NULL, local TEXT NOT NULL, pauta TEXT NOT NULL, status TEXT DEFAULT 'Agendada');
+            CREATE TABLE IF NOT EXISTS atas (id SERIAL PRIMARY KEY, mes_ano TEXT NOT NULL, data_completa TEXT NOT NULL, pauta TEXT NOT NULL, nome_arquivo TEXT NOT NULL, arquivo_dados BYTEA);
+            CREATE TABLE IF NOT EXISTS reservas (id SERIAL PRIMARY KEY, nome TEXT NOT NULL, casa TEXT NOT NULL, data_reserva TEXT NOT NULL, status TEXT NOT NULL, boleto_nome TEXT, boleto_dados BYTEA, comprovante_nome TEXT, comprovante_dados BYTEA);
+            CREATE TABLE IF NOT EXISTS balancetes (id SERIAL PRIMARY KEY, titulo TEXT NOT NULL, nome_arquivo TEXT NOT NULL, arquivo_dados BYTEA);
+            CREATE TABLE IF NOT EXISTS multas (id SERIAL PRIMARY KEY, casa TEXT NOT NULL, motivo TEXT NOT NULL, data_aplicacao TEXT NOT NULL, nome_arquivo TEXT NOT NULL, arquivo_dados BYTEA);
+            CREATE TABLE IF NOT EXISTS chamados (id SERIAL PRIMARY KEY, nome TEXT NOT NULL, casa TEXT NOT NULL, assunto TEXT NOT NULL, status TEXT DEFAULT 'Aberto', data_criacao TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS respostas (id SERIAL PRIMARY KEY, chamado_id INTEGER NOT NULL, remetente TEXT NOT NULL, texto TEXT NOT NULL, data_envio TEXT NOT NULL);
+        ''')
+        
+        cursor.execute("SELECT id FROM usuarios WHERE perfil='Síndico' LIMIT 1")
+        if not cursor.fetchone():
+            cursor.execute("INSERT INTO usuarios (nome, email, casa, senha, perfil) VALUES (%s, %s, %s, %s, %s)",
+                         ("Administrador", "sindico@recanto.com", "Sede", "admin123", "Síndico"))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Erro na criação inicial do banco: {e}")
+        return False
 
-# OTIMIZAÇÃO: Só roda a verificação das tabelas 1 vez por acesso, deixando o app super rápido!
-if 'banco_inicializado' not in st.session_state:
-    inicializar_banco()
-    st.session_state['banco_inicializado'] = True
+# Chama a função super-rápida (só executa de verdade 1x quando o servidor acorda)
+inicializar_banco()
 
 def criar_novo_chamado(nome, casa, assunto, texto, data_envio):
     conn = get_conexao()
@@ -142,10 +158,11 @@ if st.session_state['usuario_logado'] is None:
     
     opcoes_acesso = ["Login", "Cadastrar Novo Morador"]
     idx_acesso = opcoes_acesso.index(st.session_state['tela_acesso'])
-    
-    # OTIMIZAÇÃO: A tela muda na mesma hora, sem precisar de recarregamento duplo
     escolha_tela = st.radio("Selecione uma opção:", opcoes_acesso, horizontal=True, index=idx_acesso)
-    st.session_state['tela_acesso'] = escolha_tela
+    
+    if escolha_tela != st.session_state['tela_acesso']:
+        st.session_state['tela_acesso'] = escolha_tela
+        st.rerun()
     
     if st.session_state['tela_acesso'] == "Login":
         st.subheader("Acesse sua conta")
@@ -207,9 +224,11 @@ else:
     """, unsafe_allow_html=True)
     st.sidebar.divider()
     
-    # OTIMIZAÇÃO: Menu lateral instantâneo
     menu = st.sidebar.radio("Navegação:", opcoes_menu, index=opcoes_menu.index(st.session_state['pagina_atual']), label_visibility="collapsed")
-    st.session_state['pagina_atual'] = menu
+    
+    if menu != st.session_state['pagina_atual']:
+        st.session_state['pagina_atual'] = menu
+        st.rerun()
         
     st.sidebar.divider()
     if st.sidebar.button("Sair (Logout)", use_container_width=True):
@@ -219,9 +238,7 @@ else:
     pagina = st.session_state['pagina_atual']
 
     if pagina != "Página Inicial":
-        if st.button("🏠 Voltar para a Página Inicial", use_container_width=True):
-            navegar_para("Página Inicial")
-            st.rerun()
+        st.button("🏠 Voltar para a Página Inicial", use_container_width=True, on_click=navegar_para, args=("Página Inicial",))
         st.divider()
 
     # --- PÁGINA INICIAL ---
@@ -230,23 +247,24 @@ else:
         st.markdown("<h1 style='text-align: center; margin-top: 0;'>Recanto do Rancho</h1>", unsafe_allow_html=True)
         st.write("")
         
+        # 🚀 OTIMIZAÇÃO: Botões com on_click navegam instantaneamente sem duplo-carregamento
         col1, col2, col3 = st.columns(3)
         with col1:
-            if st.button("📢\nComunicados", use_container_width=True): navegar_para("Comunicados"); st.rerun()
-            if st.button("📊\nContas", use_container_width=True): navegar_para("Prestação de Contas"); st.rerun()
+            st.button("📢\nComunicados", use_container_width=True, on_click=navegar_para, args=("Comunicados",))
+            st.button("📊\nContas", use_container_width=True, on_click=navegar_para, args=("Prestação de Contas",))
             if user['perfil'] == "Síndico":
-                if st.button("📥\nMensagens", use_container_width=True): navegar_para("Mensagens"); st.rerun()
+                st.button("📥\nMensagens", use_container_width=True, on_click=navegar_para, args=("Mensagens",))
         with col2:
-            if st.button("📅\nReservas", use_container_width=True): navegar_para("Reservas"); st.rerun()
-            if st.button("🤝\nAssembleias", use_container_width=True): navegar_para("Assembleias"); st.rerun()
+            st.button("📅\nReservas", use_container_width=True, on_click=navegar_para, args=("Reservas",))
+            st.button("🤝\nAssembleias", use_container_width=True, on_click=navegar_para, args=("Assembleias",))
             if user['perfil'] == "Síndico":
-                if st.button("👥\nMoradores", use_container_width=True): navegar_para("Moradores"); st.rerun()
+                st.button("👥\nMoradores", use_container_width=True, on_click=navegar_para, args=("Moradores",))
         with col3:
             if user['perfil'] == "Síndico":
-                if st.button("🛑\nMultas", use_container_width=True): navegar_para("Multas"); st.rerun()
+                st.button("🛑\nMultas", use_container_width=True, on_click=navegar_para, args=("Multas",))
             else:
-                if st.button("💬\nFalar c/ Síndico", use_container_width=True): navegar_para("Falar com o Síndico"); st.rerun()
-                if st.button("🛑\nMinhas Multas", use_container_width=True): navegar_para("Minhas Multas"); st.rerun()
+                st.button("💬\nFalar c/ Síndico", use_container_width=True, on_click=navegar_para, args=("Falar com o Síndico",))
+                st.button("🛑\nMinhas Multas", use_container_width=True, on_click=navegar_para, args=("Minhas Multas",))
 
         st.divider()
         ultimos_avisos = buscar_dados("SELECT * FROM comunicados ORDER BY id DESC LIMIT 3")
