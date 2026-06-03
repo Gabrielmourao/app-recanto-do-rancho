@@ -17,7 +17,8 @@ def aplicar_estilo_app():
             padding-top: 2rem;
             padding-bottom: 2rem;
         }
-        div.stButton > button {
+        /* Aplica o estilo tanto para botões normais quanto para botões de link (WhatsApp) */
+        div.stButton > button, [data-testid="stLinkButton"] {
             border-radius: 15px;
             border: 1px solid #e0e0e0;
             box-shadow: 0 4px 6px rgba(0,0,0,0.05);
@@ -25,8 +26,10 @@ def aplicar_estilo_app():
             height: auto;
             padding: 15px 0;
             font-weight: 600;
+            display: flex;
+            justify-content: center;
         }
-        div.stButton > button:hover {
+        div.stButton > button:hover, [data-testid="stLinkButton"]:hover {
             transform: translateY(-3px);
             box-shadow: 0 8px 12px rgba(0,0,0,0.1);
             border-color: #0b5394;
@@ -85,15 +88,12 @@ def buscar_dados(query, parametros=()):
     conn.close()
     return resultado_normalizado
 
-# 🚀 OTIMIZAÇÃO DE VELOCIDADE MAXIMA: 
-# O cache memoriza a operação para que ela NUNCA se repita enquanto o aplicativo estiver no ar
 @st.cache_resource
 def inicializar_banco():
     try:
         conn = get_conexao()
         cursor = conn.cursor()
         
-        # Agrupamos todas as tabelas em um único pacote gigante de dados (1 única viagem ao banco!)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, nome TEXT NOT NULL, email TEXT UNIQUE NOT NULL, casa TEXT NOT NULL, senha TEXT NOT NULL, perfil TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS comunicados (id SERIAL PRIMARY KEY, titulo TEXT NOT NULL, mensagem TEXT NOT NULL, data_publicacao TEXT NOT NULL);
@@ -102,8 +102,6 @@ def inicializar_banco():
             CREATE TABLE IF NOT EXISTS reservas (id SERIAL PRIMARY KEY, nome TEXT NOT NULL, casa TEXT NOT NULL, data_reserva TEXT NOT NULL, status TEXT NOT NULL, boleto_nome TEXT, boleto_dados BYTEA, comprovante_nome TEXT, comprovante_dados BYTEA);
             CREATE TABLE IF NOT EXISTS balancetes (id SERIAL PRIMARY KEY, titulo TEXT NOT NULL, nome_arquivo TEXT NOT NULL, arquivo_dados BYTEA);
             CREATE TABLE IF NOT EXISTS multas (id SERIAL PRIMARY KEY, casa TEXT NOT NULL, motivo TEXT NOT NULL, data_aplicacao TEXT NOT NULL, nome_arquivo TEXT NOT NULL, arquivo_dados BYTEA);
-            CREATE TABLE IF NOT EXISTS chamados (id SERIAL PRIMARY KEY, nome TEXT NOT NULL, casa TEXT NOT NULL, assunto TEXT NOT NULL, status TEXT DEFAULT 'Aberto', data_criacao TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS respostas (id SERIAL PRIMARY KEY, chamado_id INTEGER NOT NULL, remetente TEXT NOT NULL, texto TEXT NOT NULL, data_envio TEXT NOT NULL);
         ''')
         
         cursor.execute("SELECT id FROM usuarios WHERE perfil='Síndico' LIMIT 1")
@@ -119,18 +117,7 @@ def inicializar_banco():
         print(f"Erro na criação inicial do banco de dados: {e}")
         return False
 
-# Chama a função super-rápida (só executa de verdade uma vez quando o servidor liga)
 inicializar_banco()
-
-def criar_novo_chamado(nome, casa, assunto, texto, data_envio):
-    conn = get_conexao()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO chamados (nome, casa, assunto, data_criacao) VALUES (%s, %s, %s, %s) RETURNING id", (nome, casa, assunto, data_envio))
-    novo_id = cursor.fetchone()[0]
-    cursor.execute("INSERT INTO respostas (chamado_id, remetente, texto, data_envio) VALUES (%s, %s, %s, %s)", (novo_id, nome, texto, data_envio))
-    conn.commit()
-    cursor.close()
-    conn.close()
 
 MESES_PT = {
     1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
@@ -159,7 +146,6 @@ if st.session_state['usuario_logado'] is None:
     opcoes_acesso = ["Login", "Cadastrar Novo Morador"]
     idx_acesso = opcoes_acesso.index(st.session_state['tela_acesso'])
     
-    # OTIMIZAÇÃO: A tela muda na mesma hora, sem precisar de recarregamento duplo
     escolha_tela = st.radio("Selecione uma opção:", opcoes_acesso, horizontal=True, index=idx_acesso)
     st.session_state['tela_acesso'] = escolha_tela
     
@@ -180,8 +166,8 @@ if st.session_state['usuario_logado'] is None:
     else: 
         st.subheader("Crie seu acesso")
         nome_cad = st.text_input("Nome Completo")
-        email_cad = st.text_input("E-mail")
-        casa_cad = st.text_input("Número da Casa")
+        email_cad = st.text_input("E-mail Pessoal")
+        casa_cad = st.text_input("Número da Casa ou Apartamento")
         senha_cad = st.text_input("Crie uma Senha", type="password")
         
         if st.button("Criar Conta"):
@@ -207,10 +193,11 @@ else:
     iniciais = "".join([n[0] for n in partes_nome[:2]]).upper()
     primeiro_nome = partes_nome[0].upper()
     
+    # O módulo de "Mensagens" foi removido dos menus para otimizar o aplicativo
     if user['perfil'] == "Síndico":
-        opcoes_menu = ["Página Inicial", "Comunicados", "Reservas", "Assembleias", "Prestação de Contas", "Moradores", "Multas", "Mensagens"]
+        opcoes_menu = ["Página Inicial", "Comunicados", "Reservas", "Assembleias", "Prestação de Contas", "Moradores", "Multas"]
     else:
-        opcoes_menu = ["Página Inicial", "Comunicados", "Reservas", "Assembleias", "Prestação de Contas", "Falar com o Síndico", "Minhas Multas"]
+        opcoes_menu = ["Página Inicial", "Comunicados", "Reservas", "Assembleias", "Prestação de Contas", "Minhas Multas"]
 
     st.sidebar.markdown(f"""
     <div style="text-align: center; padding: 10px 0;">
@@ -223,11 +210,16 @@ else:
     """, unsafe_allow_html=True)
     st.sidebar.divider()
     
-    # OTIMIZAÇÃO: Menu lateral instantâneo
     menu = st.sidebar.radio("Navegação:", opcoes_menu, index=opcoes_menu.index(st.session_state['pagina_atual']), label_visibility="collapsed")
     st.session_state['pagina_atual'] = menu
         
     st.sidebar.divider()
+    
+    # Adiciona o botão do WhatsApp fixo no menu lateral para o Morador
+    if user['perfil'] == "Morador":
+        st.sidebar.link_button("💬 Falar com o Síndico", "https://wa.me/5521990353882", use_container_width=True)
+        st.sidebar.divider()
+        
     if st.sidebar.button("Sair da Conta", use_container_width=True):
         st.session_state['usuario_logado'] = None
         st.rerun()
@@ -244,13 +236,10 @@ else:
         st.markdown("<h1 style='text-align: center; margin-top: 0;'>Recanto do Rancho</h1>", unsafe_allow_html=True)
         st.write("")
         
-        # 🚀 OTIMIZAÇÃO: Botões com on_click navegam instantaneamente sem duplo carregamento
         col1, col2, col3 = st.columns(3)
         with col1:
             st.button("📢\nComunicados", use_container_width=True, on_click=navegar_para, args=("Comunicados",))
             st.button("📊\nContas", use_container_width=True, on_click=navegar_para, args=("Prestação de Contas",))
-            if user['perfil'] == "Síndico":
-                st.button("📥\nMensagens", use_container_width=True, on_click=navegar_para, args=("Mensagens",))
         with col2:
             st.button("📅\nReservas", use_container_width=True, on_click=navegar_para, args=("Reservas",))
             st.button("🤝\nAssembleias", use_container_width=True, on_click=navegar_para, args=("Assembleias",))
@@ -260,7 +249,8 @@ else:
             if user['perfil'] == "Síndico":
                 st.button("🛑\nMultas", use_container_width=True, on_click=navegar_para, args=("Multas",))
             else:
-                st.button("💬\nFalar com o Síndico", use_container_width=True, on_click=navegar_para, args=("Falar com o Síndico",))
+                # O botão da tela inicial agora é um link direto para o WhatsApp do Síndico
+                st.link_button("💬\nFalar com o Síndico", "https://wa.me/5521990353882", use_container_width=True)
                 st.button("🛑\nMinhas Multas", use_container_width=True, on_click=navegar_para, args=("Minhas Multas",))
 
         st.divider()
@@ -295,10 +285,18 @@ else:
 
         avisos = buscar_dados("SELECT * FROM comunicados ORDER BY id DESC")
         if not avisos: st.write("Nenhum comunicado publicado ainda.")
+        
         for aviso in avisos:
             st.markdown(f"### 📌 {aviso['titulo']}")
             st.caption(f"Publicado em: {aviso['data_publicacao']}")
             st.write(aviso['mensagem'])
+            
+            # Novo botão para o Síndico apagar os comunicados
+            if user['perfil'] == "Síndico":
+                if st.button("🗑️ Apagar Comunicado", key=f"del_aviso_{aviso['id']}"):
+                    executar_sql("DELETE FROM comunicados WHERE id=?", (aviso['id'],))
+                    st.rerun()
+                    
             st.divider()
 
     # --- RESERVAS ---
@@ -454,54 +452,6 @@ else:
             if user['perfil'] == "Síndico" and col2.button("🗑️ Excluir", key=f"x_bal_{bal['id']}"):
                 executar_sql("DELETE FROM balancetes WHERE id=?", (bal['id'],)); st.rerun()
             st.divider()
-
-    # --- COMUNICAÇÃO (BATE-PAPO) ---
-    elif pagina == "Falar com o Síndico" or pagina == "Mensagens":
-        st.title("💬 Central de Atendimento")
-        if st.button("🔄 Atualizar Bate-papo"): st.rerun()
-        st.divider()
-        
-        if user['perfil'] == "Síndico":
-            chamados = buscar_dados("SELECT * FROM chamados ORDER BY id DESC")
-        else:
-            chamados = buscar_dados("SELECT * FROM chamados WHERE casa=? ORDER BY id DESC", (user['casa'],))
-            with st.expander("➕ Iniciar Nova Conversa"):
-                with st.form("form_novo_chamado", clear_on_submit=True):
-                    assunto = st.text_input("Assunto")
-                    texto = st.text_area("Primeira Mensagem")
-                    if st.form_submit_button("Enviar"):
-                        if assunto and texto:
-                            hoje = datetime.datetime.now().strftime("%d/%m/%Y às %H:%M")
-                            criar_novo_chamado(user['nome'], user['casa'], assunto, texto, hoje)
-                            st.success("Mensagem enviada com sucesso!"); st.rerun()
-
-        for ch in chamados:
-            respostas = buscar_dados("SELECT * FROM respostas WHERE chamado_id=? ORDER BY id ASC", (ch['id'],))
-            alerta_nova = ""
-            if respostas and ch['status'] == "Aberto":
-                ultima_msg = respostas[-1]
-                if user['perfil'] == "Síndico" and ultima_msg['remetente'] not in ["Administrador", "Síndico"]: alerta_nova = "🔴 [NOVA] "
-                elif user['perfil'] == "Morador" and ultima_msg['remetente'] in ["Administrador", "Síndico"]: alerta_nova = "🔴 [NOVA] "
-                    
-            status_icone = "🟢" if ch['status'] == "Aberto" else "⚪"
-            with st.expander(f"{alerta_nova}{status_icone} {ch['assunto']} - Casa {ch['casa']}"):
-                for r in respostas:
-                    if r['remetente'] in ["Síndico", "Administrador"]: st.info(f"👔 **Administração** ({r['data_envio']}):\n\n{r['texto']}")
-                    else: st.success(f"👤 **{r['remetente']}** ({r['data_envio']}):\n\n{r['texto']}")
-                
-                if ch['status'] == "Aberto":
-                    st.divider()
-                    with st.form(key=f"form_resp_{ch['id']}", clear_on_submit=True):
-                        texto_resposta = st.text_input("Escreva sua resposta...")
-                        col_btn1, col_btn2 = st.columns(2)
-                        if col_btn1.form_submit_button("Enviar Resposta") and texto_resposta:
-                            hoje = datetime.datetime.now().strftime("%d/%m/%Y às %H:%M")
-                            executar_sql("INSERT INTO respostas (chamado_id, remetente, texto, data_envio) VALUES (?, ?, ?, ?)", (ch['id'], user['nome'], texto_resposta, hoje))
-                            st.rerun()
-                            
-                    if user['perfil'] == "Síndico" and st.button("🚫 Encerrar Conversa", key=f"btn_encer_{ch['id']}"):
-                        executar_sql("UPDATE chamados SET status='Encerrado' WHERE id=?", (ch['id'],)); st.rerun()
-                else: st.error("Esta conversa foi encerrada pela Administração.")
 
     # --- MORADORES ---
     elif pagina == "Moradores":
