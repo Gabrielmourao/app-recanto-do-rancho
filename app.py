@@ -3,28 +3,30 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import datetime
 
-# Configuração da página - Inicia com a aba lateral fechada
+# Configuração da página - Inicia com layout expandido e barra lateral escondida/removida
 st.set_page_config(page_title="Recanto do Rancho", layout="wide", initial_sidebar_state="collapsed")
 
 # Estilo para deixar com aparência de Aplicativo
 def aplicar_estilo_app():
     st.markdown("""
     <style>
+        /* Esconde elementos nativos do Streamlit que não queremos ver */
+        [data-testid="collapsedControl"] {display: none;}
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
         .block-container {
-            padding-top: 2rem;
+            padding-top: 1.5rem;
             padding-bottom: 2rem;
         }
-        /* Aplica o estilo tanto para botões normais quanto para botões de link (WhatsApp) */
+        /* Estilo das caixas (Botões) */
         div.stButton > button, [data-testid="stLinkButton"] {
-            border-radius: 15px;
+            border-radius: 12px;
             border: 1px solid #e0e0e0;
             box-shadow: 0 4px 6px rgba(0,0,0,0.05);
             transition: all 0.2s ease-in-out;
             height: auto;
-            padding: 15px 0;
+            padding: 12px 0;
             font-weight: 600;
             display: flex;
             justify-content: center;
@@ -189,69 +191,48 @@ if st.session_state['usuario_logado'] is None:
 # ==========================================
 else:
     user = st.session_state['usuario_logado'] 
-    partes_nome = user['nome'].split()
-    iniciais = "".join([n[0] for n in partes_nome[:2]]).upper()
-    primeiro_nome = partes_nome[0].upper()
-    
-    # O módulo de "Mensagens" foi removido dos menus para otimizar o aplicativo
-    if user['perfil'] == "Síndico":
-        opcoes_menu = ["Página Inicial", "Comunicados", "Reservas", "Assembleias", "Prestação de Contas", "Moradores", "Multas"]
-    else:
-        opcoes_menu = ["Página Inicial", "Comunicados", "Reservas", "Assembleias", "Prestação de Contas", "Minhas Multas"]
-
-    st.sidebar.markdown(f"""
-    <div style="text-align: center; padding: 10px 0;">
-        <div style="background-color: #0b5394; color: white; border-radius: 50%; width: 60px; height: 60px; line-height: 60px; font-size: 22px; font-weight: bold; margin: 0 auto;">
-            {iniciais}
-        </div>
-        <h4 style="margin: 10px 0 0 0; color: #333;">{user['nome'].upper()}</h4>
-        <p style="margin: 0; color: gray; font-size: 14px;">Casa: {user['casa']} • Perfil: {user['perfil']}</p>
-    </div>
-    """, unsafe_allow_html=True)
-    st.sidebar.divider()
-    
-    menu = st.sidebar.radio("Navegação:", opcoes_menu, index=opcoes_menu.index(st.session_state['pagina_atual']), label_visibility="collapsed")
-    st.session_state['pagina_atual'] = menu
-        
-    st.sidebar.divider()
-    
-    # Adiciona o botão do WhatsApp fixo no menu lateral para o Morador
-    if user['perfil'] == "Morador":
-        st.sidebar.link_button("💬 Falar com o Síndico", "https://wa.me/5521990353882", use_container_width=True)
-        st.sidebar.divider()
-        
-    if st.sidebar.button("Sair da Conta", use_container_width=True):
-        st.session_state['usuario_logado'] = None
-        st.rerun()
-
     pagina = st.session_state['pagina_atual']
+    primeiro_nome = user['nome'].split()[0].upper()
 
+    # --- CABEÇALHO SUPERIOR (SUBSTITUI A BARRA LATERAL) ---
+    col_nome, col_vazio, col_sair = st.columns([6, 2, 2])
+    with col_nome:
+        st.markdown(f"<span style='color: gray; font-size: 14px;'>🏠 Casa {user['casa']} | Logado como: <b>{user['nome']}</b></span>", unsafe_allow_html=True)
+    with col_sair:
+        if st.button("🚪 Sair", use_container_width=True):
+            st.session_state['usuario_logado'] = None
+            st.rerun()
+    st.divider()
+
+    # --- BOTÃO DE VOLTAR ---
     if pagina != "Página Inicial":
         st.button("🏠 Voltar para a Página Inicial", use_container_width=True, on_click=navegar_para, args=("Página Inicial",))
         st.divider()
 
     # --- PÁGINA INICIAL ---
     if pagina == "Página Inicial":
-        st.markdown(f"<h3 style='text-align: center; color: gray; font-weight: normal; margin-bottom: 0;'>Bem-vindo, {primeiro_nome}</h3>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='text-align: center; color: gray; font-weight: normal; margin-bottom: 0;'>Bem-vindo, {primeiro_nome}</h4>", unsafe_allow_html=True)
         st.markdown("<h1 style='text-align: center; margin-top: 0;'>Recanto do Rancho</h1>", unsafe_allow_html=True)
         st.write("")
         
+        # Caixas organizadas perfeitamente em 3 colunas (Lado a lado)
         col1, col2, col3 = st.columns(3)
+        
         with col1:
-            st.button("📢\nComunicados", use_container_width=True, on_click=navegar_para, args=("Comunicados",))
-            st.button("📊\nContas", use_container_width=True, on_click=navegar_para, args=("Prestação de Contas",))
+            st.button("📢 Comunicados", use_container_width=True, on_click=navegar_para, args=("Comunicados",))
+            st.button("📊 Contas", use_container_width=True, on_click=navegar_para, args=("Prestação de Contas",))
+            
         with col2:
-            st.button("📅\nReservas", use_container_width=True, on_click=navegar_para, args=("Reservas",))
-            st.button("🤝\nAssembleias", use_container_width=True, on_click=navegar_para, args=("Assembleias",))
-            if user['perfil'] == "Síndico":
-                st.button("👥\nMoradores", use_container_width=True, on_click=navegar_para, args=("Moradores",))
+            st.button("📅 Reservas", use_container_width=True, on_click=navegar_para, args=("Reservas",))
+            st.button("🤝 Assembleias", use_container_width=True, on_click=navegar_para, args=("Assembleias",))
+            
         with col3:
             if user['perfil'] == "Síndico":
-                st.button("🛑\nMultas", use_container_width=True, on_click=navegar_para, args=("Multas",))
+                st.button("👥 Moradores", use_container_width=True, on_click=navegar_para, args=("Moradores",))
+                st.button("🛑 Multas", use_container_width=True, on_click=navegar_para, args=("Multas",))
             else:
-                # O botão da tela inicial agora é um link direto para o WhatsApp do Síndico
-                st.link_button("💬\nFalar com o Síndico", "https://wa.me/5521990353882", use_container_width=True)
-                st.button("🛑\nMinhas Multas", use_container_width=True, on_click=navegar_para, args=("Minhas Multas",))
+                st.link_button("💬 Falar com o Síndico", "https://wa.me/5521990353882", use_container_width=True)
+                st.button("🛑 Minhas Multas", use_container_width=True, on_click=navegar_para, args=("Minhas Multas",))
 
         st.divider()
         ultimos_avisos = buscar_dados("SELECT * FROM comunicados ORDER BY id DESC LIMIT 3")
@@ -291,7 +272,6 @@ else:
             st.caption(f"Publicado em: {aviso['data_publicacao']}")
             st.write(aviso['mensagem'])
             
-            # Novo botão para o Síndico apagar os comunicados
             if user['perfil'] == "Síndico":
                 if st.button("🗑️ Apagar Comunicado", key=f"del_aviso_{aviso['id']}"):
                     executar_sql("DELETE FROM comunicados WHERE id=?", (aviso['id'],))
