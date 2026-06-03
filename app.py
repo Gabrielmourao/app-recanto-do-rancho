@@ -19,24 +19,36 @@ def aplicar_estilo_app():
             padding-top: 1.5rem;
             padding-bottom: 2rem;
         }
-        /* Estilo das caixas (Botões) */
-        div.stButton > button, [data-testid="stLinkButton"] {
-            border-radius: 12px;
-            border: 1px solid #e0e0e0;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            transition: all 0.2s ease-in-out;
-            height: auto;
-            padding: 12px 0;
-            font-weight: 600;
-            display: flex;
-            justify-content: center;
+        
+        /* Esconde a caixa extra do st.link_button para evitar "botão dentro de botão" */
+        div[data-testid="stLinkButton"] {
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            background-color: transparent !important;
         }
-        div.stButton > button:hover, [data-testid="stLinkButton"]:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 12px rgba(0,0,0,0.1);
-            border-color: #0b5394;
-            color: #0b5394;
+        
+        /* Estilo das caixas (Botões normais e Link do WhatsApp) */
+        div.stButton > button, div[data-testid="stLinkButton"] > a {
+            border-radius: 12px !important;
+            border: 1px solid rgba(200, 200, 200, 0.2) !important;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important;
+            transition: all 0.2s ease-in-out !important;
+            height: auto !important;
+            padding: 12px 0 !important;
+            font-weight: 600 !important;
+            display: flex !important;
+            justify-content: center !important;
+            text-decoration: none !important;
+            width: 100% !important;
         }
+        div.stButton > button:hover, div[data-testid="stLinkButton"] > a:hover {
+            transform: translateY(-3px) !important;
+            box-shadow: 0 8px 12px rgba(0,0,0,0.1) !important;
+            border-color: #0b5394 !important;
+            color: #0b5394 !important;
+        }
+        
         div[data-testid="stExpander"] {
             border-radius: 12px !important;
             border: 1px solid rgba(200, 200, 200, 0.2);
@@ -194,10 +206,11 @@ else:
     pagina = st.session_state['pagina_atual']
     primeiro_nome = user['nome'].split()[0].upper()
 
-    # --- CABEÇALHO SUPERIOR (SUBSTITUI A BARRA LATERAL) ---
+    # --- CABEÇALHO SUPERIOR (ALINHADO) ---
     col_nome, col_vazio, col_sair = st.columns([6, 2, 2])
     with col_nome:
-        st.markdown(f"<span style='color: gray; font-size: 14px;'>🏠 Casa {user['casa']} | Logado como: <b>{user['nome']}</b></span>", unsafe_allow_html=True)
+        # A margem superior (margin-top: 15px) alinha o texto perfeitamente com o botão de Sair
+        st.markdown(f"<div style='margin-top: 15px;'><span style='color: gray; font-size: 15px;'>🏠 Casa {user['casa']} | Logado como: <b>{user['nome']}</b></span></div>", unsafe_allow_html=True)
     with col_sair:
         if st.button("🚪 Sair", use_container_width=True):
             st.session_state['usuario_logado'] = None
