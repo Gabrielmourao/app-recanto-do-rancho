@@ -2,11 +2,77 @@ import streamlit as st
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import datetime
+# NOVOS IMPORTS PARA E-MAIL
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import threading 
 
 # Configuração da página - Inicia com layout expandido e barra lateral escondida/removida
 st.set_page_config(page_title="Recanto do Rancho", layout="wide", initial_sidebar_state="collapsed")
 
+# ==========================================
+# --- FUNÇÕES DE E-MAIL (NOVO) ---
+# ==========================================
+def disparar_email_background(destinatarios, assunto, corpo_texto):
+    """Função que roda em segundo plano para enviar o e-mail"""
+    try:
+        # Puxa as credenciais dos Secrets
+        remetente = st.secrets["email"]["endereco"]
+        senha = st.secrets["email"]["senha"]
+        
+        # Configura a mensagem
+        msg = MIMEMultipart()
+        msg['From'] = remetente
+        msg['Subject'] = assunto
+        
+        # Corpo do e-mail em HTML simples
+        corpo_html = f"""
+        <html>
+          <body style="font-family: Arial, sans-serif; color: #333;">
+            <div style="background-color: #f4f4f4; padding: 20px; border-radius: 10px;">
+                <h2 style="color: #0b5394;">Portal Recanto do Rancho</h2>
+                <p>{corpo_texto.replace(chr(10), '<br>')}</p>
+                <hr style="border: none; border-top: 1px solid #ccc;">
+                <p style="font-size: 12px; color: gray;">Esta é uma mensagem automática gerada pelo Portal. Por favor, não responda.</p>
+            </div>
+          </body>
+        </html>
+        """
+        msg.attach(MIMEText(corpo_html, 'html'))
+        
+        # Configura o servidor SMTP (Gmail)
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls() # Segurança
+        server.login(remetente, senha)
+        
+        # Envia
+        if isinstance(destinatarios, list):
+            # Se for lista (Aviso Geral), usa Cópia Oculta (BCC)
+            msg['To'] = remetente # Manda 'para' o próprio admin
+            msg['Bcc'] = ", ".join(destinatarios) # Cópia oculta para todos
+            server.sendmail(remetente, destinatarios + [remetente], msg.as_string())
+        else:
+            # Se for único (Aprovação de reserva)
+            msg['To'] = destinatarios
+            server.sendmail(remetente, destinatarios, msg.as_string())
+            
+        server.quit()
+    except Exception as e:
+        # Se der erro, printa no console do Streamlit (não quebra o app pro usuário)
+        print(f"🔺 ERRO AO ENVIAR E-MAIL: {e}")
+
+def enviar_notificacao(destinatarios, assunto, corpo_texto):
+    """Chama o envio de e-mail em uma Thread separada para não travar o app"""
+    # Cria uma cópia da lista de destinatários para evitar problemas de memória
+    lista_destinatarios = list(destinatarios) if isinstance(destinatarios, list) else destinatarios
+    
+    thread = threading.Thread(target=disparar_email_background, args=(lista_destinatarios, assunto, corpo_texto))
+    thread.start()
+
+# ==========================================
 # Estilo para deixar com aparência de Aplicativo
+# ==========================================
 def aplicar_estilo_app():
     st.markdown("""
     <style>
@@ -270,7 +336,27 @@ else:
                         if tit_aviso and msg_aviso:
                             data_hoje = datetime.datetime.now().strftime("%d/%m/%Y")
                             executar_sql("INSERT INTO comunicados (titulo, mensagem, data_publicacao) VALUES (?, ?, ?)", (tit_aviso, msg_aviso, data_hoje))
-                            st.success("Comunicado publicado com sucesso!")
+                            
+                            # --- GATILHO DE E-MAIL (NOVO) ---
+                            # Busca todos os e-mails dos usuários cadastrados
+                            todos_usuarios = buscar_dados("SELECT email FROM usuarios")
+                            lista_emails = [u['email'] for u in todos_usuarios]
+                            
+                            if lista_emails:
+                                corpo_email = f"""Olá Morador(a)!
+
+Há um novo comunicado importante no Mural do Recanto do Rancho:
+
+Título: {tit_aviso}
+
+Mensagem:
+{msg_aviso}
+
+Acesse o Portal para mais detalhes."""
+                                enviar_notificacao(lista_emails, f"📢 Novo Comunicado: {tit_aviso}", corpo_email)
+                            # --------------------------------
+                            
+                            st.success("Comunicado publicado e e-mails enviados com sucesso!")
                             st.rerun()
             st.divider()
 
@@ -323,7 +409,25 @@ else:
                         
                         col1, col2 = st.columns(2)
                         if col1.button("✅ Aprovar Reserva", key=f"apr_{r['id']}"):
-                            executar_sql("UPDATE reservas SET status='Aprovada' WHERE id=?", (r['id'],)); st.rerun()
+                            executar_sql("UPDATE reservas SET status='Aprovada' WHERE id=?", (r['id'],))
+                            
+                            # --- GATILHO DE E-MAIL (NOVO) ---
+                            # Busca o e-mail do morador que fez a reserva
+                            dono_reserva = buscar_dados("SELECT email FROM usuarios WHERE casa=? LIMIT 1", (r['casa'],))
+                            
+                            if dono_reserva:
+                                email_morador = dono_reserva[0]['email']
+                                corpo_email = f"""Olá {r['nome']}, Casa {r['casa']}!
+
+Boas notícias! Sua solicitação de reserva para a Churrasqueira foi APROVADA.
+
+Data: {r['data_reserva']}
+
+Divirta-se! 🎉"""
+                                enviar_notificacao(email_morador, "📅 Sua Reserva da Churrasqueira foi APROVADA!", corpo_email)
+                            # --------------------------------
+                            st.rerun()
+
                         if col2.button("❌ Reprovar ou Cancelar", key=f"rep_{r['id']}"):
                             executar_sql("UPDATE reservas SET status='Reprovada' WHERE id=?", (r['id'],)); st.rerun()
             st.divider()
@@ -395,6 +499,24 @@ else:
                             hora_str = hora_reuniao.strftime("%H:%M")
                             mes_ano = f"{MESES_PT[data_reuniao.month]}/{data_reuniao.year}"
                             executar_sql("INSERT INTO assembleias (data_completa, mes_ano, local, pauta) VALUES (?, ?, ?, ?)", (f"{data_str} às {hora_str}", mes_ano, novo_local, nova_pauta))
+                            
+                            # --- GATILHO DE E-MAIL (NOVO) ---
+                            todos_usuarios = buscar_dados("SELECT email FROM usuarios")
+                            lista_emails = [u['email'] for u in todos_usuarios]
+                            
+                            if lista_emails:
+                                corpo_email = f"""Olá Morador(a)!
+
+Uma nova Assembleia foi agendada no Recanto do Rancho.
+
+Data: {data_str} às {hora_str}
+Local: {novo_local}
+Pauta: {nova_pauta}
+
+Sua presença é muito importante. Acesse o portal para conferir o edital oficial."""
+                                enviar_notificacao(lista_emails, f"🤝 Convocação de Assembleia: {data_str}", corpo_email)
+                            # --------------------------------
+                            
                             st.rerun()
             
             with st.expander("📂 Publicar Ata"):
