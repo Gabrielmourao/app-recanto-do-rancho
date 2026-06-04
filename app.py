@@ -11,41 +11,49 @@ import threading
 st.set_page_config(page_title="Recanto do Rancho", layout="wide", initial_sidebar_state="collapsed")
 
 # ==========================================
-# --- FUNÇÕES DE E-MAIL (CORRIGIDAS) ---
+# --- FUNÇÕES DE E-MAIL (INDIVIDUALIZADAS) ---
 # ==========================================
 def disparar_email_background(destinatarios, assunto, corpo_texto, remetente, senha):
     try:
-        msg = MIMEMultipart()
-        msg['From'] = remetente
-        msg['Subject'] = assunto
-        
-        corpo_html = f"""
-        <html>
-          <body style="font-family: Arial, sans-serif; color: #333;">
-            <div style="background-color: #f4f4f4; padding: 20px; border-radius: 10px;">
-                <h2 style="color: #0b5394;">Portal Recanto do Rancho</h2>
-                <p>{corpo_texto.replace(chr(10), '<br>')}</p>
-                <hr style="border: none; border-top: 1px solid #ccc;">
-                <p style="font-size: 12px; color: gray;">Esta é uma mensagem automática gerada pelo Portal. Por favor, não responda.</p>
-            </div>
-          </body>
-        </html>
-        """
-        msg.attach(MIMEText(corpo_html, 'html'))
-        
+        # Conecta no servidor do Google primeiro
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(remetente, senha)
         
-        if isinstance(destinatarios, list):
-            msg['To'] = remetente
-            msg['Bcc'] = ", ".join(destinatarios)
-            server.sendmail(remetente, destinatarios + [remetente], msg.as_string())
-        else:
-            msg['To'] = destinatarios
-            server.sendmail(remetente, destinatarios, msg.as_string())
+        # Garante que os destinatários sejam uma lista
+        lista_dests = destinatarios if isinstance(destinatarios, list) else [destinatarios]
+        
+        # Envia um e-mail individual para cada morador
+        for dest in lista_dests:
+            # PULA e-mails falsos de teste para não bloquear o Gmail
+            if dest == "sindico@recanto.com" or "@" not in dest:
+                continue
+                
+            msg = MIMEMultipart()
+            msg['From'] = remetente
+            msg['To'] = dest  # Vai direto para o morador (sem BCC)
+            msg['Subject'] = assunto
             
+            corpo_html = f"""
+            <html>
+              <body style="font-family: Arial, sans-serif; color: #333;">
+                <div style="background-color: #f4f4f4; padding: 20px; border-radius: 10px;">
+                    <h2 style="color: #0b5394;">Portal Recanto do Rancho</h2>
+                    <p>{corpo_texto.replace(chr(10), '<br>')}</p>
+                    <hr style="border: none; border-top: 1px solid #ccc;">
+                    <p style="font-size: 12px; color: gray;">Esta é uma mensagem automática gerada pelo Portal. Por favor, não responda.</p>
+                </div>
+              </body>
+            </html>
+            """
+            msg.attach(MIMEText(corpo_html, 'html'))
+            
+            # Dispara a mensagem
+            server.sendmail(remetente, dest, msg.as_string())
+            
+        # Fecha a conexão após enviar para todos
         server.quit()
+        
     except Exception as e:
         print(f"🔺 ERRO AO ENVIAR E-MAIL: {e}")
 
@@ -231,7 +239,7 @@ if st.session_state['usuario_logado'] is None:
         st.subheader("Crie seu acesso")
         nome_cad = st.text_input("Nome Completo")
         email_cad = st.text_input("E-mail Pessoal")
-        casa_cad = st.text_input("Número da Casa ou Apartamento")
+        casa_cad = st.text_input("Número da Casa")
         senha_cad = st.text_input("Crie uma Senha", type="password")
         
         if st.button("Criar Conta"):
