@@ -2,31 +2,23 @@ import streamlit as st
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import datetime
-# NOVOS IMPORTS PARA E-MAIL
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import threading 
+import threading
 
 # Configuração da página - Inicia com layout expandido e barra lateral escondida/removida
 st.set_page_config(page_title="Recanto do Rancho", layout="wide", initial_sidebar_state="collapsed")
 
 # ==========================================
-# --- FUNÇÕES DE E-MAIL (NOVO) ---
+# --- FUNÇÕES DE E-MAIL (CORRIGIDAS) ---
 # ==========================================
-def disparar_email_background(destinatarios, assunto, corpo_texto):
-    """Função que roda em segundo plano para enviar o e-mail"""
+def disparar_email_background(destinatarios, assunto, corpo_texto, remetente, senha):
     try:
-        # Puxa as credenciais dos Secrets
-        remetente = st.secrets["email"]["endereco"]
-        senha = st.secrets["email"]["senha"]
-        
-        # Configura a mensagem
         msg = MIMEMultipart()
         msg['From'] = remetente
         msg['Subject'] = assunto
         
-        # Corpo do e-mail em HTML simples
         corpo_html = f"""
         <html>
           <body style="font-family: Arial, sans-serif; color: #333;">
@@ -41,33 +33,31 @@ def disparar_email_background(destinatarios, assunto, corpo_texto):
         """
         msg.attach(MIMEText(corpo_html, 'html'))
         
-        # Configura o servidor SMTP (Gmail)
         server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls() # Segurança
+        server.starttls()
         server.login(remetente, senha)
         
-        # Envia
         if isinstance(destinatarios, list):
-            # Se for lista (Aviso Geral), usa Cópia Oculta (BCC)
-            msg['To'] = remetente # Manda 'para' o próprio admin
-            msg['Bcc'] = ", ".join(destinatarios) # Cópia oculta para todos
+            msg['To'] = remetente
+            msg['Bcc'] = ", ".join(destinatarios)
             server.sendmail(remetente, destinatarios + [remetente], msg.as_string())
         else:
-            # Se for único (Aprovação de reserva)
             msg['To'] = destinatarios
             server.sendmail(remetente, destinatarios, msg.as_string())
             
         server.quit()
     except Exception as e:
-        # Se der erro, printa no console do Streamlit (não quebra o app pro usuário)
         print(f"🔺 ERRO AO ENVIAR E-MAIL: {e}")
 
 def enviar_notificacao(destinatarios, assunto, corpo_texto):
-    """Chama o envio de e-mail em uma Thread separada para não travar o app"""
-    # Cria uma cópia da lista de destinatários para evitar problemas de memória
+    # LÊ O COFRE *ANTES* DE IR PARA O SEGUNDO PLANO
+    remetente = st.secrets["email"]["endereco"]
+    senha = st.secrets["email"]["senha"]
+    
     lista_destinatarios = list(destinatarios) if isinstance(destinatarios, list) else destinatarios
     
-    thread = threading.Thread(target=disparar_email_background, args=(lista_destinatarios, assunto, corpo_texto))
+    # PASSA O REMETENTE E A SENHA JUNTO COM O RESTO PARA A THREAD
+    thread = threading.Thread(target=disparar_email_background, args=(lista_destinatarios, assunto, corpo_texto, remetente, senha))
     thread.start()
 
 # ==========================================
@@ -76,7 +66,6 @@ def enviar_notificacao(destinatarios, assunto, corpo_texto):
 def aplicar_estilo_app():
     st.markdown("""
     <style>
-        /* Esconde elementos nativos do Streamlit que não queremos ver */
         [data-testid="collapsedControl"] {display: none;}
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
@@ -85,16 +74,12 @@ def aplicar_estilo_app():
             padding-top: 1.5rem;
             padding-bottom: 2rem;
         }
-        
-        /* Esconde a caixa extra do st.link_button para evitar "botão dentro de botão" */
         div[data-testid="stLinkButton"] {
             border: none !important;
             box-shadow: none !important;
             padding: 0 !important;
             background-color: transparent !important;
         }
-        
-        /* Estilo das caixas (Botões normais e Link do WhatsApp) */
         div.stButton > button, div[data-testid="stLinkButton"] > a {
             border-radius: 12px !important;
             border: 1px solid rgba(200, 200, 200, 0.2) !important;
@@ -114,7 +99,6 @@ def aplicar_estilo_app():
             border-color: #0b5394 !important;
             color: #0b5394 !important;
         }
-        
         div[data-testid="stExpander"] {
             border-radius: 12px !important;
             border: 1px solid rgba(200, 200, 200, 0.2);
@@ -272,10 +256,8 @@ else:
     pagina = st.session_state['pagina_atual']
     primeiro_nome = user['nome'].split()[0].upper()
 
-    # --- CABEÇALHO SUPERIOR (ALINHADO) ---
     col_nome, col_vazio, col_sair = st.columns([6, 2, 2])
     with col_nome:
-        # A margem superior (margin-top: 15px) alinha o texto perfeitamente com o botão de Sair
         st.markdown(f"<div style='margin-top: 15px;'><span style='color: gray; font-size: 15px;'>🏠 Casa {user['casa']} | Logado como: <b>{user['nome']}</b></span></div>", unsafe_allow_html=True)
     with col_sair:
         if st.button("🚪 Sair", use_container_width=True):
@@ -283,7 +265,6 @@ else:
             st.rerun()
     st.divider()
 
-    # --- BOTÃO DE VOLTAR ---
     if pagina != "Página Inicial":
         st.button("🏠 Voltar para a Página Inicial", use_container_width=True, on_click=navegar_para, args=("Página Inicial",))
         st.divider()
@@ -294,17 +275,13 @@ else:
         st.markdown("<h1 style='text-align: center; margin-top: 0;'>Recanto do Rancho</h1>", unsafe_allow_html=True)
         st.write("")
         
-        # Caixas organizadas perfeitamente em 3 colunas (Lado a lado)
         col1, col2, col3 = st.columns(3)
-        
         with col1:
             st.button("📢 Comunicados", use_container_width=True, on_click=navegar_para, args=("Comunicados",))
             st.button("📊 Contas", use_container_width=True, on_click=navegar_para, args=("Prestação de Contas",))
-            
         with col2:
             st.button("📅 Reservas", use_container_width=True, on_click=navegar_para, args=("Reservas",))
             st.button("🤝 Assembleias", use_container_width=True, on_click=navegar_para, args=("Assembleias",))
-            
         with col3:
             if user['perfil'] == "Síndico":
                 st.button("👥 Moradores", use_container_width=True, on_click=navegar_para, args=("Moradores",))
@@ -337,24 +314,11 @@ else:
                             data_hoje = datetime.datetime.now().strftime("%d/%m/%Y")
                             executar_sql("INSERT INTO comunicados (titulo, mensagem, data_publicacao) VALUES (?, ?, ?)", (tit_aviso, msg_aviso, data_hoje))
                             
-                            # --- GATILHO DE E-MAIL (NOVO) ---
-                            # Busca todos os e-mails dos usuários cadastrados
                             todos_usuarios = buscar_dados("SELECT email FROM usuarios")
                             lista_emails = [u['email'] for u in todos_usuarios]
-                            
                             if lista_emails:
-                                corpo_email = f"""Olá Morador(a)!
-
-Há um novo comunicado importante no Mural do Recanto do Rancho:
-
-Título: {tit_aviso}
-
-Mensagem:
-{msg_aviso}
-
-Acesse o Portal para mais detalhes."""
+                                corpo_email = f"Olá Morador(a)!\n\nHá um novo comunicado importante no Mural do Recanto do Rancho:\n\nTitulo: {tit_aviso}\n\nMensagem:\n{msg_aviso}\n\nAcesse o Portal para mais detalhes."
                                 enviar_notificacao(lista_emails, f"📢 Novo Comunicado: {tit_aviso}", corpo_email)
-                            # --------------------------------
                             
                             st.success("Comunicado publicado e e-mails enviados com sucesso!")
                             st.rerun()
@@ -370,12 +334,8 @@ Acesse o Portal para mais detalhes."""
             st.markdown(f"### 📌 {aviso['titulo']}")
             st.caption(f"Publicado em: {aviso['data_publicacao']}")
             st.write(aviso['mensagem'])
-            
-            if user['perfil'] == "Síndico":
-                if st.button("🗑️ Apagar Comunicado", key=f"del_aviso_{aviso['id']}"):
-                    executar_sql("DELETE FROM comunicados WHERE id=?", (aviso['id'],))
-                    st.rerun()
-                    
+            if user['perfil'] == "Síndico" and st.button("🗑️ Apagar Comunicado", key=f"del_aviso_{aviso['id']}"):
+                executar_sql("DELETE FROM comunicados WHERE id=?", (aviso['id'],)); st.rerun()
             st.divider()
 
     # --- RESERVAS ---
@@ -410,22 +370,10 @@ Acesse o Portal para mais detalhes."""
                         col1, col2 = st.columns(2)
                         if col1.button("✅ Aprovar Reserva", key=f"apr_{r['id']}"):
                             executar_sql("UPDATE reservas SET status='Aprovada' WHERE id=?", (r['id'],))
-                            
-                            # --- GATILHO DE E-MAIL (NOVO) ---
-                            # Busca o e-mail do morador que fez a reserva
                             dono_reserva = buscar_dados("SELECT email FROM usuarios WHERE casa=? LIMIT 1", (r['casa'],))
-                            
                             if dono_reserva:
-                                email_morador = dono_reserva[0]['email']
-                                corpo_email = f"""Olá {r['nome']}, Casa {r['casa']}!
-
-Boas notícias! Sua solicitação de reserva para a Churrasqueira foi APROVADA.
-
-Data: {r['data_reserva']}
-
-Divirta-se! 🎉"""
-                                enviar_notificacao(email_morador, "📅 Sua Reserva da Churrasqueira foi APROVADA!", corpo_email)
-                            # --------------------------------
+                                corpo_email = f"Olá {r['nome']}, Casa {r['casa']}!\n\nBoas notícias! Sua solicitação de reserva para a Churrasqueira foi APROVADA.\n\nData: {r['data_reserva']}\n\nDivirta-se! 🎉"
+                                enviar_notificacao(dono_reserva[0]['email'], "📅 Sua Reserva da Churrasqueira foi APROVADA!", corpo_email)
                             st.rerun()
 
                         if col2.button("❌ Reprovar ou Cancelar", key=f"rep_{r['id']}"):
@@ -450,7 +398,6 @@ Divirta-se! 🎉"""
                         st.error(f"📅 {r['data_reserva']} | PENDENTE DE PAGAMENTO")
                         if r.get('boleto_dados'):
                             st.download_button("📥 1. Baixar Boleto ou Chave Pix", data=bytes(r['boleto_dados']), file_name=r['boleto_nome'], key=f"dl_bol_{r['id']}")
-                        
                         st.write("Após realizar o pagamento, envie o comprovante abaixo:")
                         arq_comp = st.file_uploader("2. Enviar Comprovante", key=f"up_comp_{r['id']}")
                         if st.button("Confirmar Pagamento", key=f"btn_comp_{r['id']}"):
@@ -500,23 +447,11 @@ Divirta-se! 🎉"""
                             mes_ano = f"{MESES_PT[data_reuniao.month]}/{data_reuniao.year}"
                             executar_sql("INSERT INTO assembleias (data_completa, mes_ano, local, pauta) VALUES (?, ?, ?, ?)", (f"{data_str} às {hora_str}", mes_ano, novo_local, nova_pauta))
                             
-                            # --- GATILHO DE E-MAIL (NOVO) ---
                             todos_usuarios = buscar_dados("SELECT email FROM usuarios")
                             lista_emails = [u['email'] for u in todos_usuarios]
-                            
                             if lista_emails:
-                                corpo_email = f"""Olá Morador(a)!
-
-Uma nova Assembleia foi agendada no Recanto do Rancho.
-
-Data: {data_str} às {hora_str}
-Local: {novo_local}
-Pauta: {nova_pauta}
-
-Sua presença é muito importante. Acesse o portal para conferir o edital oficial."""
+                                corpo_email = f"Olá Morador(a)!\n\nUma nova Assembleia foi agendada no Recanto do Rancho.\n\nData: {data_str} às {hora_str}\nLocal: {novo_local}\nPauta: {nova_pauta}\n\nSua presença é muito importante. Acesse o portal para conferir o edital oficial."
                                 enviar_notificacao(lista_emails, f"🤝 Convocação de Assembleia: {data_str}", corpo_email)
-                            # --------------------------------
-                            
                             st.rerun()
             
             with st.expander("📂 Publicar Ata"):
